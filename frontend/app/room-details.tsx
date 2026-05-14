@@ -3,6 +3,11 @@ import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { API } from "../api/api";
 import { COLORS } from "../constants/theme";
 
+const DEMO_GUEST_ID = 91001;
+const DEFAULT_PAYMENT_MODE = "Credit Card";
+const today = new Date();
+const checkOut = new Date();
+checkOut.setDate(today.getDate() + 2);
 type Room = {
   RoomNumber: number;
   RoomType: string;
@@ -33,12 +38,17 @@ export default function RoomDetails() {
 
   const reserveRoom = async () => {
     try {
-      const res = await API.post("/api/rooms/reserve", {
-        RoomNumber: roomData.RoomNumber,
-      });
+      const res = await API.post("/api/reservations", {
+  guestId: DEMO_GUEST_ID,
+  roomNumber: roomData.RoomNumber,
+  checkInDate: today.toISOString().split("T")[0],
+  checkOutDate: checkOut.toISOString().split("T")[0],
+  paymentMode: DEFAULT_PAYMENT_MODE,
+  specialRequest: "Mobile app reservation",
+});
 
       if (res.data.success) {
-        Alert.alert("Success", "Room reserved successfully", [
+        Alert.alert("Success", "Reservation created successfully", [
           {
             text: "OK",
             onPress: () => router.back(),
