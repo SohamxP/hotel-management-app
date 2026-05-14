@@ -1,6 +1,8 @@
 import { createContext, useContext, useState } from "react";
 import { setAuthToken } from "../api/api";
 
+const DEMO_TOKEN = "hotel-management-demo-token";
+
 type AuthContextType = {
   token: string | null;
   login: (newToken: string) => void;
@@ -10,7 +12,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(DEMO_TOKEN);
 
   const login = (newToken: string) => {
     setToken(newToken);

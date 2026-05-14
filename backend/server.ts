@@ -7,6 +7,7 @@ import authRoute from "./routes/auth";
 import reservationRoutes from "./routes/reservations";
 import guestRoutes from "./routes/guests";
 import serviceRoutes from "./routes/services";
+import aiRoutes from "./routes/ai";
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ app.use("/api/reports", reportsRoute);
 app.use("/api/reservations", reservationRoutes);
 app.use("/api/guests", guestRoutes);
 app.use("/api/services", serviceRoutes);
+app.use("/api/ai", aiRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hotel Management API is running");
