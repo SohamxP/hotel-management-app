@@ -157,3 +157,22 @@ export async function createGuest(input: CreateGuestInput) {
     throw error;
   }
 }
+export async function getGuestReservations(guestId: number) {
+  if (!guestId) {
+    throw {
+      status: 400,
+      message: "Guest ID is required",
+    };
+  }
+
+  const guest = await guestRepository.findGuestById(guestId);
+
+  if (!guest) {
+    throw {
+      status: 404,
+      message: "Guest not found",
+    };
+  }
+
+  return guestRepository.findGuestReservations(guestId);
+}

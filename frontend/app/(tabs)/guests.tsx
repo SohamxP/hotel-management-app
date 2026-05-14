@@ -214,16 +214,22 @@ export default function GuestsScreen() {
             <Text style={{ color: COLORS.muted }}>No guests found.</Text>
           }
           renderItem={({ item }) => (
-            <View
-              style={{
-                backgroundColor: COLORS.card,
-                padding: 16,
-                borderRadius: 16,
-                marginBottom: 14,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-              }}
-            >
+            <Pressable
+  onPress={() =>
+    router.push({
+      pathname: "/guest-details" as any,
+      params: { guestId: String(item.GuestID) },
+    })
+  }
+  style={{
+    backgroundColor: COLORS.card,
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  }}
+>
               <View
                 style={{
                   flexDirection: "row",
@@ -294,7 +300,7 @@ export default function GuestsScreen() {
                   value={`$${Number(item.TotalSpent || 0).toFixed(2)}`}
                 />
               </View>
-            </View>
+            </Pressable>
           )}
         />
       </View>

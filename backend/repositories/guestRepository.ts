@@ -182,3 +182,45 @@ export async function createGuestWithDetails(data: CreateGuestData) {
     throw error;
   }
 }
+export async function findGuestReservations(guestId: number) {
+  const db = await getDB();
+
+  return db.all(
+    `
+    SELECT
+      r.ReservationID,
+      r.GuestID,
+      r.RoomNumber,
+      ro.RoomType,
+      ro.RatePerNight,
+      r.CheckInDate,
+      r.CheckInTime,
+      r.CheckOutDate,
+      r.TotalPrice,
+      r.ReservStatus,
+      r.SpecialRequest,
+      r.PaymentMode,
+      COUNT(s.ServiceID) AS ServiceCount,
+      COALESCE(SUM(s.ServicePrice), 0) AS ServiceTotal
+    FROM Reservation r
+    JOIN Room ro ON r.RoomNumber = ro.RoomNumber
+    LEFT JOIN Service s ON r.ReservationID = s.ReservationID
+    WHERE r.GuestID = ?
+    GROUP BY
+      r.ReservationID,
+      r.GuestID,
+      r.RoomNumber,
+      ro.RoomType,
+      ro.RatePerNight,
+      r.CheckInDate,
+      r.CheckInTime,
+      r.CheckOutDate,
+      r.TotalPrice,
+      r.ReservStatus,
+      r.SpecialRequest,
+      r.PaymentMode
+    ORDER BY r.CheckInDate DESC
+    `,
+    [guestId]
+  );
+}

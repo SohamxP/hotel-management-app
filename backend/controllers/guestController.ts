@@ -35,3 +35,16 @@ export async function createGuest(req: Request, res: Response) {
     });
   }
 }
+
+export async function getGuestReservations(req: Request, res: Response) {
+  try {
+    const guestId = Number(req.params.id);
+    const reservations = await guestService.getGuestReservations(guestId);
+    res.json(reservations);
+  } catch (error: any) {
+    console.error("GET guest reservations error:", error);
+    res.status(error.status || 500).json({
+      error: error.message || "Failed to fetch guest reservations",
+    });
+  }
+}
