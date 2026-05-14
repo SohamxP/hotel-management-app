@@ -1,0 +1,39 @@
+import { Ionicons } from "@expo/vector-icons";
+import { Tabs } from "expo-router";
+import { COLORS } from "../../constants/theme";
+
+export default function TabsLayout() {
+  return (
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: COLORS.card,
+          borderTopColor: COLORS.border,
+        },
+        tabBarActiveTintColor: COLORS.primary,
+        tabBarInactiveTintColor: COLORS.muted,
+      }}
+    >
+      <Tabs.Screen
+        name="rooms"
+        options={{
+          title: "Rooms",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="bed-outline" size={size} color={color} />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="reports"
+        options={{
+          title: "Reports",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="bar-chart-outline" size={size} color={color} />
+          ),
+        }}
+      />
+    </Tabs>
+  );
+}
