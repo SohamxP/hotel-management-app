@@ -33,6 +33,7 @@ type LocalInsight = {
 };
 
 type ActionPriority = "High" | "Medium" | "Low";
+type RevenueImpact = "High" | "Medium" | "Low";
 
 type ActionItem = {
   id: string;
@@ -42,6 +43,17 @@ type ActionItem = {
   owner: string;
   due: string;
   impact: string;
+  source: string;
+};
+
+type RevenueOpportunity = {
+  id: string;
+  impact: RevenueImpact;
+  title: string;
+  description: string;
+  estimatedValue: string;
+  target: string;
+  recommendation: string;
   source: string;
 };
 
@@ -68,6 +80,12 @@ type ActionCenterResponse = {
   actionItems: ActionItem[];
 };
 
+type RevenueResponse = {
+  success: boolean;
+  generatedAt: string;
+  opportunities: RevenueOpportunity[];
+};
+
 const DEFAULT_QUESTION =
   "What should the hotel manager focus on today based on the current data?";
 
@@ -78,7 +96,7 @@ function getSeverityColor(severity: InsightSeverity) {
   return COLORS.primary;
 }
 
-function getPriorityColor(priority: ActionPriority) {
+function getPriorityColor(priority: ActionPriority | RevenueImpact) {
   if (priority === "High") return COLORS.danger;
   if (priority === "Medium") return COLORS.warning;
   return COLORS.primary;
@@ -94,15 +112,22 @@ export default function AIScreen() {
   const [actionCenter, setActionCenter] = useState<ActionCenterResponse | null>(
     null
   );
+  const [revenue, setRevenue] = useState<RevenueResponse | null>(null);
+
   const [briefing, setBriefing] = useState("");
   const [actionPlan, setActionPlan] = useState("");
+  const [recoveryDrafts, setRecoveryDrafts] = useState("");
+  const [revenuePlan, setRevenuePlan] = useState("");
   const [question, setQuestion] = useState(DEFAULT_QUESTION);
   const [answer, setAnswer] = useState("");
 
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [loadingActions, setLoadingActions] = useState(true);
+  const [loadingRevenue, setLoadingRevenue] = useState(true);
   const [loadingBriefing, setLoadingBriefing] = useState(false);
   const [loadingActionPlan, setLoadingActionPlan] = useState(false);
+  const [loadingRecoveryDrafts, setLoadingRecoveryDrafts] = useState(false);
+  const [loadingRevenuePlan, setLoadingRevenuePlan] = useState(false);
   const [loadingAnswer, setLoadingAnswer] = useState(false);
   const [testingOpenAI, setTestingOpenAI] = useState(false);
 
@@ -117,6 +142,12 @@ export default function AIScreen() {
       (item) => item.priority === "High"
     ).length;
   }, [actionCenter]);
+
+  const highRevenueCount = useMemo(() => {
+    return (revenue?.opportunities || []).filter(
+      (item) => item.impact === "High"
+    ).length;
+  }, [revenue]);
 
   const loadStatus = async () => {
     try {
@@ -148,10 +179,24 @@ export default function AIScreen() {
     }
   };
 
+  const loadRevenue = async () => {
+    try {
+      setLoadingRevenue(true);
+      const res = await API.get("/api/ai/revenue");
+      setRevenue(res.data);
+    } catch (error: any) {
+      console.log("AI revenue error:", error.response?.data || error.message);
+      Alert.alert("Error", "Failed to load revenue opportunities");
+    } finally {
+      setLoadingRevenue(false);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       loadStatus();
       loadActionCenter();
+      loadRevenue();
     }, [])
   );
 
@@ -202,6 +247,45 @@ export default function AIScreen() {
       );
     } finally {
       setLoadingActionPlan(false);
+    }
+  };
+
+  const generateRecoveryDrafts = async () => {
+    try {
+      setLoadingRecoveryDrafts(true);
+      setRecoveryDrafts("");
+      const res = await API.post("/api/ai/guest-recovery");
+      setRecoveryDrafts(
+        res.data.recoveryDrafts || "No guest recovery drafts returned."
+      );
+    } catch (error: any) {
+      console.log(
+        "Guest recovery error:",
+        error.response?.data || error.message
+      );
+      Alert.alert(
+        "Guest recovery failed",
+        error.response?.data?.error || "Could not generate recovery drafts."
+      );
+    } finally {
+      setLoadingRecoveryDrafts(false);
+    }
+  };
+
+  const generateRevenuePlan = async () => {
+    try {
+      setLoadingRevenuePlan(true);
+      setRevenuePlan("");
+      const res = await API.post("/api/ai/revenue-plan");
+      setRevenuePlan(res.data.revenuePlan || "No revenue plan returned.");
+    } catch (error: any) {
+      console.log("Revenue plan error:", error.response?.data || error.message);
+      Alert.alert(
+        "Revenue plan failed",
+        error.response?.data?.error || "Could not generate revenue plan."
+      );
+    } finally {
+      setLoadingRevenuePlan(false);
     }
   };
 
@@ -321,6 +405,79 @@ export default function AIScreen() {
           </>
         ) : null}
 
+        {loadingRevenue ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator color={COLORS.primary} />
+            <Text style={{ color: COLORS.muted, marginTop: 10 }}>
+              Loading revenue opportunities...
+            </Text>
+          </View>
+        ) : revenue ? (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <View>
+                <Text style={styles.sectionTitle}>Revenue Engine</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Upsells and revenue opportunities
+                </Text>
+              </View>
+
+              <Pressable style={styles.smallButton} onPress={loadRevenue}>
+                <Ionicons name="refresh-outline" size={16} color="#00111A" />
+                <Text style={styles.smallButtonText}>Refresh</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.grid}>
+              <MetricCard
+                label="Opportunities"
+                value={String(revenue.opportunities.length)}
+              />
+              <MetricCard label="High Impact" value={String(highRevenueCount)} />
+            </View>
+
+            {revenue.opportunities.map((item) => (
+              <RevenueCard key={item.id} item={item} />
+            ))}
+          </>
+        ) : null}
+
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.iconBubble}>
+              <Ionicons name="trending-up-outline" size={20} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>OpenAI Revenue Plan</Text>
+              <Text style={styles.cardSubtitle}>
+                Creates a revenue plan from rooms, reservations, guests, and services
+              </Text>
+            </View>
+          </View>
+
+          <Pressable
+            style={[
+              styles.primaryButton,
+              loadingRevenuePlan && styles.disabledButton,
+            ]}
+            onPress={generateRevenuePlan}
+            disabled={loadingRevenuePlan}
+          >
+            {loadingRevenuePlan ? (
+              <ActivityIndicator color="#00111A" />
+            ) : (
+              <>
+                <Ionicons name="cash-outline" size={18} color="#00111A" />
+                <Text style={styles.primaryButtonText}>
+                  Generate Revenue Plan
+                </Text>
+              </>
+            )}
+          </Pressable>
+
+          {revenuePlan ? <AITextBlock text={revenuePlan} /> : null}
+        </View>
+
         <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
             <View style={styles.iconBubble}>
@@ -381,6 +538,42 @@ export default function AIScreen() {
           </Pressable>
 
           {actionPlan ? <AITextBlock text={actionPlan} /> : null}
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.iconBubble}>
+              <Ionicons name="heart-outline" size={20} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Guest Recovery Drafts</Text>
+              <Text style={styles.cardSubtitle}>
+                Creates follow-up messages for low feedback cases
+              </Text>
+            </View>
+          </View>
+
+          <Pressable
+            style={[
+              styles.primaryButton,
+              loadingRecoveryDrafts && styles.disabledButton,
+            ]}
+            onPress={generateRecoveryDrafts}
+            disabled={loadingRecoveryDrafts}
+          >
+            {loadingRecoveryDrafts ? (
+              <ActivityIndicator color="#00111A" />
+            ) : (
+              <>
+                <Ionicons name="mail-outline" size={18} color="#00111A" />
+                <Text style={styles.primaryButtonText}>
+                  Generate Recovery Drafts
+                </Text>
+              </>
+            )}
+          </Pressable>
+
+          {recoveryDrafts ? <AITextBlock text={recoveryDrafts} /> : null}
         </View>
 
         <View style={styles.card}>
@@ -546,6 +739,37 @@ function ActionCard({ item }: { item: ActionItem }) {
       <View style={styles.recommendationBox}>
         <Text style={styles.recommendationLabel}>{item.source}</Text>
         <Text style={styles.recommendationText}>{item.impact}</Text>
+      </View>
+    </View>
+  );
+}
+
+function RevenueCard({ item }: { item: RevenueOpportunity }) {
+  const color = getPriorityColor(item.impact);
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <View style={[styles.pill, { borderColor: color }]}>
+          <Text style={[styles.pillText, { color }]}>{item.impact} Impact</Text>
+        </View>
+        <View style={{ flex: 1 }} />
+        <Text style={{ color: COLORS.primary, fontWeight: "900" }}>
+          {item.estimatedValue}
+        </Text>
+      </View>
+
+      <Text style={styles.cardTitle}>{item.title}</Text>
+      <Text style={styles.bodyText}>{item.description}</Text>
+
+      <View style={styles.actionMetaGrid}>
+        <Meta label="Target" value={item.target} />
+        <Meta label="Source" value={item.source} />
+      </View>
+
+      <View style={styles.recommendationBox}>
+        <Text style={styles.recommendationLabel}>Recommendation</Text>
+        <Text style={styles.recommendationText}>{item.recommendation}</Text>
       </View>
     </View>
   );

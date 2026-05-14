@@ -3,11 +3,14 @@ import {
   getAIActionCenter,
   getHotelOperationsSnapshot,
   getLocalHotelInsights,
+  getRevenueOpportunities,
 } from "../services/aiService";
 import {
   askOpenAI,
   generateActionPlan,
+  generateGuestRecoveryDrafts,
   generateManagerBriefing,
+  generateRevenuePlan,
   getOpenAIStatus,
   testOpenAIConnection,
 } from "../services/openaiService";
@@ -65,6 +68,18 @@ export async function getActions(req: Request, res: Response) {
   }
 }
 
+export async function getRevenue(req: Request, res: Response) {
+  try {
+    const result = await getRevenueOpportunities();
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error: any) {
+    sendError(res, error, "Failed to generate revenue opportunities");
+  }
+}
+
 export async function askAI(req: Request, res: Response) {
   try {
     const question = String(req.body?.question || "").trim();
@@ -110,5 +125,48 @@ export async function createActionPlan(req: Request, res: Response) {
     });
   } catch (error: any) {
     sendError(res, error, "Failed to generate OpenAI action plan");
+  }
+}
+
+export async function createGuestRecoveryDrafts(req: Request, res: Response) {
+  try {
+    const snapshot = await getHotelOperationsSnapshot();
+
+    if (!snapshot.lowFeedback || snapshot.lowFeedback.length === 0) {
+      res.json({
+        success: true,
+        recoveryDrafts:
+          "No low-feedback guest recovery cases were found in the current hotel data.",
+        lowFeedbackCount: 0,
+      });
+      return;
+    }
+
+    const recoveryDrafts = await generateGuestRecoveryDrafts(
+      snapshot.lowFeedback
+    );
+
+    res.json({
+      success: true,
+      recoveryDrafts,
+      lowFeedbackCount: snapshot.lowFeedback.length,
+    });
+  } catch (error: any) {
+    sendError(res, error, "Failed to generate guest recovery drafts");
+  }
+}
+
+export async function createRevenuePlan(req: Request, res: Response) {
+  try {
+    const revenueOpportunities = await getRevenueOpportunities();
+    const revenuePlan = await generateRevenuePlan(revenueOpportunities);
+
+    res.json({
+      success: true,
+      revenuePlan,
+      opportunities: revenueOpportunities.opportunities,
+    });
+  } catch (error: any) {
+    sendError(res, error, "Failed to generate OpenAI revenue plan");
   }
 }

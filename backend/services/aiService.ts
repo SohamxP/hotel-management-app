@@ -2,6 +2,7 @@ import { getDB } from "../db";
 
 export type InsightSeverity = "critical" | "warning" | "info" | "success";
 export type ActionPriority = "High" | "Medium" | "Low";
+export type RevenueImpact = "High" | "Medium" | "Low";
 
 export type LocalInsight = {
   id: string;
@@ -21,6 +22,17 @@ export type ActionItem = {
   owner: string;
   due: string;
   impact: string;
+  source: string;
+};
+
+export type RevenueOpportunity = {
+  id: string;
+  impact: RevenueImpact;
+  title: string;
+  description: string;
+  estimatedValue: string;
+  target: string;
+  recommendation: string;
   source: string;
 };
 
@@ -535,5 +547,240 @@ export async function getAIActionCenter() {
     insights: result.insights,
     actionItems,
     snapshot,
+  };
+}
+
+export async function getRevenueOpportunities() {
+  const db = await getDB();
+  const snapshot = await getHotelOperationsSnapshot();
+
+  const [
+    premiumAvailableRooms,
+    pendingReservations,
+    upgradeCandidates,
+    serviceAttachTargets,
+  ] = await Promise.all([
+    db.all(`
+      SELECT
+        RoomNumber,
+        RoomType,
+        RatePerNight,
+        BuildingNumber,
+        HasBalcony,
+        HasWifi,
+        HasTv
+      FROM Room
+      WHERE AvailStatus = 'Available'
+      ORDER BY RatePerNight DESC
+      LIMIT 8
+    `),
+
+    db.all(`
+      SELECT
+        r.ReservationID,
+        r.GuestID,
+        g.FirstName,
+        g.LastName,
+        g.Email,
+        r.RoomNumber,
+        ro.RoomType,
+        r.CheckInDate,
+        r.CheckOutDate,
+        r.TotalPrice,
+        r.PaymentMode,
+        m.MembershipLevel,
+        m.PreferredRoomType,
+        m.PurposeOfVisit
+      FROM Reservation r
+      JOIN Guest g ON g.GuestID = r.GuestID
+      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
+      LEFT JOIN Membership m ON m.GuestID = g.GuestID
+      WHERE r.ReservStatus = 'Pending'
+      ORDER BY r.TotalPrice DESC
+      LIMIT 8
+    `),
+
+    db.all(`
+      SELECT
+        r.ReservationID,
+        r.GuestID,
+        g.FirstName,
+        g.LastName,
+        g.Email,
+        r.RoomNumber,
+        ro.RoomType AS CurrentRoomType,
+        ro.RatePerNight AS CurrentRate,
+        r.CheckInDate,
+        r.CheckOutDate,
+        ROUND(julianday(r.CheckOutDate) - julianday(r.CheckInDate), 1) AS StayNights,
+        r.TotalPrice,
+        m.MembershipLevel,
+        m.PreferredRoomType,
+        m.PurposeOfVisit
+      FROM Reservation r
+      JOIN Guest g ON g.GuestID = r.GuestID
+      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
+      LEFT JOIN Membership m ON m.GuestID = g.GuestID
+      WHERE r.ReservStatus IN ('Confirmed', 'Pending')
+      ORDER BY r.TotalPrice DESC
+      LIMIT 10
+    `),
+
+    db.all(`
+      SELECT
+        r.ReservationID,
+        r.GuestID,
+        g.FirstName,
+        g.LastName,
+        r.RoomNumber,
+        ro.RoomType,
+        r.CheckInDate,
+        r.CheckOutDate,
+        ROUND(julianday(r.CheckOutDate) - julianday(r.CheckInDate), 1) AS StayNights,
+        r.TotalPrice,
+        m.MembershipLevel,
+        m.PurposeOfVisit,
+        COUNT(s.ServiceID) AS serviceCount
+      FROM Reservation r
+      JOIN Guest g ON g.GuestID = r.GuestID
+      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
+      LEFT JOIN Membership m ON m.GuestID = g.GuestID
+      LEFT JOIN Service s ON s.ReservationID = r.ReservationID
+      WHERE r.ReservStatus IN ('Confirmed', 'Pending')
+      GROUP BY r.ReservationID
+      HAVING serviceCount = 0
+      ORDER BY r.TotalPrice DESC
+      LIMIT 10
+    `),
+  ]);
+
+  const opportunities: RevenueOpportunity[] = [];
+
+  const mostExpensiveAvailableRoom = premiumAvailableRooms[0];
+
+  if (mostExpensiveAvailableRoom) {
+    opportunities.push({
+      id: "R-001",
+      impact: "High",
+      title: "Sell premium available inventory",
+      description: `${mostExpensiveAvailableRoom.RoomType} room ${mostExpensiveAvailableRoom.RoomNumber} is available at ${money(
+        mostExpensiveAvailableRoom.RatePerNight
+      )} per night.`,
+      estimatedValue: money(mostExpensiveAvailableRoom.RatePerNight),
+      target: `Room ${mostExpensiveAvailableRoom.RoomNumber}`,
+      recommendation:
+        "Prioritize this room for walk-ins, upgrade offers, and high-value guests instead of discounting it.",
+      source: "Available premium rooms",
+    });
+  }
+
+  if (pendingReservations.length > 0) {
+    const pendingValue = pendingReservations.reduce(
+      (sum: number, reservation: any) => sum + numberValue(reservation.TotalPrice),
+      0
+    );
+
+    opportunities.push({
+      id: "R-002",
+      impact: "High",
+      title: "Convert pending reservation revenue",
+      description: `${pendingReservations.length} pending reservation(s) represent ${money(
+        pendingValue
+      )} in possible booking revenue.`,
+      estimatedValue: money(pendingValue),
+      target: "Pending reservations",
+      recommendation:
+        "Call or message pending guests to confirm payment, arrival time, and special requests before the booking is lost.",
+      source: "Reservation status",
+    });
+  }
+
+  const preferredUpgradeCandidate = upgradeCandidates.find(
+    (candidate: any) =>
+      candidate.PreferredRoomType &&
+      candidate.PreferredRoomType !== candidate.CurrentRoomType
+  );
+
+  if (preferredUpgradeCandidate) {
+    opportunities.push({
+      id: "R-003",
+      impact: "Medium",
+      title: "Preferred room upsell",
+      description: `${preferredUpgradeCandidate.FirstName} ${preferredUpgradeCandidate.LastName} prefers ${preferredUpgradeCandidate.PreferredRoomType} rooms but is booked in a ${preferredUpgradeCandidate.CurrentRoomType} room.`,
+      estimatedValue: "Upsell potential",
+      target: `${preferredUpgradeCandidate.FirstName} ${preferredUpgradeCandidate.LastName}`,
+      recommendation:
+        "Offer a paid upgrade that matches the guest's membership profile and preferred room type.",
+      source: "Membership preference",
+    });
+  }
+
+  const longStayServiceTarget = serviceAttachTargets.find(
+    (target: any) => numberValue(target.StayNights) >= 3
+  );
+
+  if (longStayServiceTarget) {
+    opportunities.push({
+      id: "R-004",
+      impact: "Medium",
+      title: "Add service package to longer stay",
+      description: `${longStayServiceTarget.FirstName} ${longStayServiceTarget.LastName} has a ${longStayServiceTarget.StayNights}-night stay with no services attached.`,
+      estimatedValue: "Service add-on",
+      target: `${longStayServiceTarget.FirstName} ${longStayServiceTarget.LastName}`,
+      recommendation:
+        "Offer a bundled service option such as spa, room service, or shuttle depending on the guest's purpose of visit.",
+      source: "Reservations without services",
+    });
+  }
+
+  const topService = snapshot.serviceRevenueByType[0];
+
+  if (topService) {
+    opportunities.push({
+      id: "R-005",
+      impact: "Medium",
+      title: `Promote ${topService.ServiceType} as the leading add-on`,
+      description: `${topService.ServiceType} has produced ${money(
+        topService.revenue
+      )} in completed service revenue.`,
+      estimatedValue: money(topService.revenue),
+      target: "Current and upcoming guests",
+      recommendation:
+        "Train front desk staff to recommend this service during check-in and reservation confirmation.",
+      source: "Service revenue",
+    });
+  }
+
+  const topMembershipSegment = snapshot.membershipRevenue[0];
+
+  if (topMembershipSegment) {
+    opportunities.push({
+      id: "R-006",
+      impact: "Low",
+      title: "Focus offers on top membership segment",
+      description: `${topMembershipSegment.MembershipLevel} guests generated ${money(
+        topMembershipSegment.totalRevenue
+      )} in reservation revenue.`,
+      estimatedValue: money(topMembershipSegment.totalRevenue),
+      target: `${topMembershipSegment.MembershipLevel} members`,
+      recommendation:
+        "Create personalized offers for this membership level instead of sending the same offer to every guest.",
+      source: "Membership revenue",
+    });
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    summary: snapshot.summary,
+    opportunities,
+    data: {
+      premiumAvailableRooms,
+      pendingReservations,
+      upgradeCandidates,
+      serviceAttachTargets,
+      serviceRevenueByType: snapshot.serviceRevenueByType,
+      membershipRevenue: snapshot.membershipRevenue,
+      paymentModeSummary: snapshot.paymentModeSummary,
+    },
   };
 }

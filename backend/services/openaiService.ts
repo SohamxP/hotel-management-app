@@ -221,3 +221,41 @@ export async function generateActionPlan(snapshot: unknown, actionItems: unknown
     { temperature: 0.25, maxTokens: 900 }
   );
 }
+
+export async function generateGuestRecoveryDrafts(lowFeedback: unknown) {
+  return callOpenAI(
+    [
+      {
+        role: "system",
+        content:
+          "You are a hotel guest experience manager. Create professional guest recovery follow-up drafts from low feedback records. Do not promise refunds unless explicitly told. Keep each message specific, polite, and realistic.",
+      },
+      {
+        role: "user",
+        content: `Create guest recovery drafts for these low-feedback hotel stays:\n${safeJson(
+          lowFeedback
+        )}\n\nFor each case, include:\n1. Guest / Reservation\n2. Main issue\n3. Suggested manager action\n4. Short follow-up message draft`,
+      },
+    ],
+    { temperature: 0.35, maxTokens: 1100 }
+  );
+}
+
+export async function generateRevenuePlan(revenueOpportunities: unknown) {
+  return callOpenAI(
+    [
+      {
+        role: "system",
+        content:
+          "You are a hotel revenue manager. Create a practical revenue plan from room, reservation, guest, membership, and service data. Do not invent new numbers. Focus on realistic actions the manager can take.",
+      },
+      {
+        role: "user",
+        content: `Create a revenue opportunity plan from this data:\n${safeJson(
+          revenueOpportunities
+        )}\n\nUse these headings:\n1. Highest-Value Opportunities\n2. Upsell Targets\n3. Service Revenue Plays\n4. Risks To Avoid\n5. Next 24 Hours`,
+      },
+    ],
+    { temperature: 0.3, maxTokens: 1100 }
+  );
+}
