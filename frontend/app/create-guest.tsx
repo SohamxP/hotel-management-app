@@ -24,7 +24,14 @@ const purposes = [
   "Social Gathering",
 ];
 
-const cardTypes = ["Visa", "MasterCard", "Amex", "Discover", "Cash", "Bank Transfer"];
+const cardTypes = [
+  "Visa",
+  "MasterCard",
+  "Amex",
+  "Discover",
+  "Cash",
+  "Bank Transfer",
+];
 
 export default function CreateGuestScreen() {
   const { roomNumber } = useLocalSearchParams();
@@ -104,6 +111,7 @@ export default function CreateGuestScreen() {
       );
     } catch (error: any) {
       console.log("Create guest error:", error.response?.data || error.message);
+
       Alert.alert(
         "Create guest failed",
         error.response?.data?.error || "Could not create guest"
@@ -127,7 +135,7 @@ export default function CreateGuestScreen() {
         style={{ flex: 1, backgroundColor: COLORS.bg }}
         contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
       >
-        <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: "800" }}>
+        <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: "900" }}>
           Create Guest
         </Text>
 
@@ -135,9 +143,17 @@ export default function CreateGuestScreen() {
           Add guest details, membership preferences, and payment profile.
         </Text>
 
-        <Field label="First Name" value={firstName} onChangeText={setFirstName} />
+        <Field
+          label="First Name"
+          value={firstName}
+          onChangeText={setFirstName}
+        />
 
-        <Field label="Last Name" value={lastName} onChangeText={setLastName} />
+        <Field
+          label="Last Name"
+          value={lastName}
+          onChangeText={setLastName}
+        />
 
         <Field
           label="Date of Birth"

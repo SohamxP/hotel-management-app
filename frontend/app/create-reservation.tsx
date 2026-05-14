@@ -27,7 +27,13 @@ type Guest = {
   PreferredRoomType?: string;
 };
 
-const paymentModes = ["Credit Card", "Debit Card", "Cash", "Bank Transfer", "Amex"];
+const paymentModes = [
+  "Credit Card",
+  "Debit Card",
+  "Cash",
+  "Bank Transfer",
+  "Amex",
+];
 
 export default function CreateReservationScreen() {
   const { roomNumber, selectedGuestId } = useLocalSearchParams();
@@ -46,6 +52,7 @@ export default function CreateReservationScreen() {
   const loadGuests = async () => {
     try {
       setLoading(true);
+
       const res = await API.get("/api/guests");
       setGuests(res.data);
 
@@ -78,6 +85,16 @@ export default function CreateReservationScreen() {
       return;
     }
 
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(checkInDate)) {
+      Alert.alert("Invalid date", "Check-in date must be in YYYY-MM-DD format.");
+      return;
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(checkOutDate)) {
+      Alert.alert("Invalid date", "Check-out date must be in YYYY-MM-DD format.");
+      return;
+    }
+
     try {
       setSubmitting(true);
 
@@ -101,7 +118,11 @@ export default function CreateReservationScreen() {
         ]
       );
     } catch (error: any) {
-      console.log("Create reservation error:", error.response?.data || error.message);
+      console.log(
+        "Create reservation error:",
+        error.response?.data || error.message
+      );
+
       Alert.alert(
         "Reservation failed",
         error.response?.data?.error || "Could not create reservation"
@@ -113,7 +134,13 @@ export default function CreateReservationScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: COLORS.bg, justifyContent: "center" }}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.bg,
+          justifyContent: "center",
+        }}
+      >
         <ActivityIndicator color={COLORS.primary} />
       </View>
     );
@@ -133,7 +160,7 @@ export default function CreateReservationScreen() {
         style={{ flex: 1, backgroundColor: COLORS.bg }}
         contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
       >
-        <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "800" }}>
+        <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
           Reserve Room {roomNumber}
         </Text>
 
@@ -206,23 +233,12 @@ export default function CreateReservationScreen() {
           })}
         </View>
 
-        <Text style={{ color: COLORS.text, marginBottom: 6 }}>Guest ID</Text>
-
-        <TextInput
+        <Field
+          label="Guest ID"
           value={guestId}
           onChangeText={setGuestId}
           placeholder="Example: 91001"
-          placeholderTextColor={COLORS.muted}
           keyboardType="numeric"
-          style={{
-            backgroundColor: COLORS.card,
-            color: COLORS.text,
-            padding: 14,
-            borderRadius: 12,
-            marginBottom: 16,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-          }}
         />
 
         <Field
@@ -243,7 +259,14 @@ export default function CreateReservationScreen() {
           Payment Mode
         </Text>
 
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 8,
+            marginBottom: 18,
+          }}
+        >
           {paymentModes.map((mode) => {
             const isSelected = paymentMode === mode;
 
@@ -310,6 +333,7 @@ type FieldProps = {
   onChangeText: (value: string) => void;
   placeholder?: string;
   multiline?: boolean;
+  keyboardType?: "default" | "numeric";
 };
 
 function Field({
@@ -318,10 +342,13 @@ function Field({
   onChangeText,
   placeholder,
   multiline = false,
+  keyboardType = "default",
 }: FieldProps) {
   return (
     <View style={{ marginBottom: 16 }}>
-      <Text style={{ color: COLORS.text, marginBottom: 6 }}>{label}</Text>
+      <Text style={{ color: COLORS.text, marginBottom: 6, fontWeight: "700" }}>
+        {label}
+      </Text>
 
       <TextInput
         value={value}
@@ -329,6 +356,7 @@ function Field({
         placeholder={placeholder || label}
         placeholderTextColor={COLORS.muted}
         multiline={multiline}
+        keyboardType={keyboardType}
         style={{
           backgroundColor: COLORS.card,
           color: COLORS.text,
