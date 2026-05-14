@@ -1,13 +1,8 @@
 import { useLocalSearchParams, router } from "expo-router";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
-import { API } from "../api/api";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { COLORS } from "../constants/theme";
 
-const DEMO_GUEST_ID = 91001;
-const DEFAULT_PAYMENT_MODE = "Credit Card";
-const today = new Date();
-const checkOut = new Date();
-checkOut.setDate(today.getDate() + 2);
+
 type Room = {
   RoomNumber: number;
   RoomType: string;
@@ -35,35 +30,6 @@ export default function RoomDetails() {
 
   const roomData: Room = JSON.parse(room as string);
   const isAvailable = roomData.AvailStatus === "Available";
-
-  const reserveRoom = async () => {
-    try {
-      const res = await API.post("/api/reservations", {
-  guestId: DEMO_GUEST_ID,
-  roomNumber: roomData.RoomNumber,
-  checkInDate: today.toISOString().split("T")[0],
-  checkOutDate: checkOut.toISOString().split("T")[0],
-  paymentMode: DEFAULT_PAYMENT_MODE,
-  specialRequest: "Mobile app reservation",
-});
-
-      if (res.data.success) {
-        Alert.alert("Success", "Reservation created successfully", [
-          {
-            text: "OK",
-            onPress: () => router.back(),
-          },
-        ]);
-      }
-    } catch (error: any) {
-      console.log("RESERVE ERROR:", error.response?.data || error.message);
-
-      Alert.alert(
-        "Reservation Failed",
-        error.response?.data?.error || "Could not reserve room"
-      );
-    }
-  };
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: COLORS.bg, padding: 20 }}>
@@ -97,16 +63,23 @@ export default function RoomDetails() {
       </View>
 
       <Pressable
-        onPress={reserveRoom}
-        disabled={!isAvailable}
-        style={{
-          backgroundColor: isAvailable ? COLORS.primary : COLORS.border,
-          padding: 16,
-          borderRadius: 16,
-          marginTop: 24,
-          opacity: isAvailable ? 1 : 0.6,
-        }}
-      >
+  onPress={() =>
+    router.push({
+      pathname: "/create-reservation" as any,
+      params: {
+        roomNumber: roomData.RoomNumber,
+      },
+    })
+  }
+  disabled={!isAvailable}
+  style={{
+    backgroundColor: isAvailable ? COLORS.primary : COLORS.border,
+    padding: 16,
+    borderRadius: 16,
+    marginTop: 24,
+    opacity: isAvailable ? 1 : 0.6,
+  }}
+>
         <Text
           style={{
             color: isAvailable ? "#00111A" : COLORS.muted,
