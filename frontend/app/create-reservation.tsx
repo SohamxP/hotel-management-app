@@ -1,5 +1,10 @@
-import { Stack, router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import {
+  Stack,
+  router,
+  useFocusEffect,
+  useLocalSearchParams,
+} from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,13 +23,19 @@ type Guest = {
   LastName: string;
   Email: string;
   PhoneNumber: string;
+  MembershipLevel?: string;
+  PreferredRoomType?: string;
 };
 
+const paymentModes = ["Credit Card", "Debit Card", "Cash", "Bank Transfer", "Amex"];
+
 export default function CreateReservationScreen() {
-  const { roomNumber } = useLocalSearchParams();
+  const { roomNumber, selectedGuestId } = useLocalSearchParams();
 
   const [guests, setGuests] = useState<Guest[]>([]);
-  const [guestId, setGuestId] = useState("");
+  const [guestId, setGuestId] = useState(
+    selectedGuestId ? String(selectedGuestId) : ""
+  );
   const [checkInDate, setCheckInDate] = useState("");
   const [checkOutDate, setCheckOutDate] = useState("");
   const [paymentMode, setPaymentMode] = useState("Credit Card");
@@ -32,22 +43,38 @@ export default function CreateReservationScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    API.get("/api/guests")
-      .then((res) => setGuests(res.data))
-      .catch((err) => {
-        console.log(err);
-        Alert.alert("Error", "Failed to load guests");
-      })
-      .finally(() => setLoading(false));
-  }, []);
+  const loadGuests = async () => {
+    try {
+      setLoading(true);
+      const res = await API.get("/api/guests");
+      setGuests(res.data);
+
+      if (selectedGuestId) {
+        setGuestId(String(selectedGuestId));
+      }
+    } catch (err: any) {
+      console.log("GET guests error:", err.response?.data || err.message);
+      Alert.alert("Error", "Failed to load guests");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadGuests();
+    }, [selectedGuestId])
+  );
 
   const handleCreateReservation = async () => {
     const parsedGuestId = Number(guestId);
     const parsedRoomNumber = Number(roomNumber);
 
     if (!parsedGuestId || !parsedRoomNumber || !checkInDate || !checkOutDate) {
-      Alert.alert("Missing fields", "Guest ID, room, check-in, and check-out are required.");
+      Alert.alert(
+        "Missing fields",
+        "Guest, room, check-in, and check-out are required."
+      );
       return;
     }
 
@@ -63,10 +90,18 @@ export default function CreateReservationScreen() {
         specialRequest,
       });
 
-      Alert.alert("Success", res.data.message || "Reservation created successfully");
-      router.back();
+      Alert.alert(
+        "Success",
+        res.data.message || "Reservation created successfully",
+        [
+          {
+            text: "View Reservations",
+            onPress: () => router.replace("/reservations" as any),
+          },
+        ]
+      );
     } catch (error: any) {
-      console.log(error);
+      console.log("Create reservation error:", error.response?.data || error.message);
       Alert.alert(
         "Reservation failed",
         error.response?.data?.error || "Could not create reservation"
@@ -96,42 +131,83 @@ export default function CreateReservationScreen() {
 
       <ScrollView
         style={{ flex: 1, backgroundColor: COLORS.bg }}
-        contentContainerStyle={{ padding: 20 }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
       >
-        <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "700", marginBottom: 8 }}>
+        <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "800" }}>
           Reserve Room {roomNumber}
         </Text>
 
-        <Text style={{ color: COLORS.muted, marginBottom: 20 }}>
-          Enter a guest ID from the guest list and reservation dates.
+        <Text style={{ color: COLORS.muted, marginTop: 6, marginBottom: 16 }}>
+          Select an existing guest or create a new guest before reserving.
         </Text>
 
-        <Text style={{ color: COLORS.text, marginBottom: 8, fontWeight: "600" }}>
-          Available Guests
+        <Pressable
+          onPress={() =>
+            router.push({
+              pathname: "/create-guest" as any,
+              params: { roomNumber: String(roomNumber) },
+            })
+          }
+          style={{
+            backgroundColor: COLORS.primary,
+            padding: 14,
+            borderRadius: 14,
+            alignItems: "center",
+            marginBottom: 18,
+          }}
+        >
+          <Text style={{ color: "#00111A", fontWeight: "900" }}>
+            + Create New Guest
+          </Text>
+        </Pressable>
+
+        <Text style={{ color: COLORS.text, marginBottom: 8, fontWeight: "700" }}>
+          Select Guest
         </Text>
 
-        <View style={{ marginBottom: 20 }}>
-          {guests.slice(0, 8).map((guest) => (
-            <Pressable
-              key={guest.GuestID}
-              onPress={() => setGuestId(String(guest.GuestID))}
-              style={{
-                backgroundColor:
-                  guestId === String(guest.GuestID) ? COLORS.primary : COLORS.card,
-                padding: 12,
-                borderRadius: 10,
-                marginBottom: 8,
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "600" }}>
-                {guest.GuestID} — {guest.FirstName} {guest.LastName}
-              </Text>
-              <Text style={{ color: COLORS.muted }}>{guest.Email}</Text>
-            </Pressable>
-          ))}
+        <View style={{ marginBottom: 18 }}>
+          {guests.slice(0, 12).map((guest) => {
+            const isSelected = guestId === String(guest.GuestID);
+
+            return (
+              <Pressable
+                key={guest.GuestID}
+                onPress={() => setGuestId(String(guest.GuestID))}
+                style={{
+                  backgroundColor: isSelected ? COLORS.primary : COLORS.card,
+                  padding: 12,
+                  borderRadius: 12,
+                  marginBottom: 8,
+                  borderWidth: 1,
+                  borderColor: isSelected ? COLORS.primary : COLORS.border,
+                }}
+              >
+                <Text
+                  style={{
+                    color: isSelected ? "#00111A" : COLORS.text,
+                    fontWeight: "800",
+                  }}
+                >
+                  {guest.GuestID} — {guest.FirstName} {guest.LastName}
+                </Text>
+
+                <Text style={{ color: isSelected ? "#003047" : COLORS.muted }}>
+                  {guest.Email}
+                </Text>
+
+                {!!guest.MembershipLevel && (
+                  <Text style={{ color: isSelected ? "#003047" : COLORS.muted }}>
+                    {guest.MembershipLevel} • Prefers{" "}
+                    {guest.PreferredRoomType || "N/A"}
+                  </Text>
+                )}
+              </Pressable>
+            );
+          })}
         </View>
 
         <Text style={{ color: COLORS.text, marginBottom: 6 }}>Guest ID</Text>
+
         <TextInput
           value={guestId}
           onChangeText={setGuestId}
@@ -141,72 +217,68 @@ export default function CreateReservationScreen() {
           style={{
             backgroundColor: COLORS.card,
             color: COLORS.text,
-            padding: 12,
-            borderRadius: 10,
+            padding: 14,
+            borderRadius: 12,
             marginBottom: 16,
+            borderWidth: 1,
+            borderColor: COLORS.border,
           }}
         />
 
-        <Text style={{ color: COLORS.text, marginBottom: 6 }}>Check-in Date</Text>
-        <TextInput
+        <Field
+          label="Check-in Date"
           value={checkInDate}
           onChangeText={setCheckInDate}
           placeholder="YYYY-MM-DD"
-          placeholderTextColor={COLORS.muted}
-          style={{
-            backgroundColor: COLORS.card,
-            color: COLORS.text,
-            padding: 12,
-            borderRadius: 10,
-            marginBottom: 16,
-          }}
         />
 
-        <Text style={{ color: COLORS.text, marginBottom: 6 }}>Check-out Date</Text>
-        <TextInput
+        <Field
+          label="Check-out Date"
           value={checkOutDate}
           onChangeText={setCheckOutDate}
           placeholder="YYYY-MM-DD"
-          placeholderTextColor={COLORS.muted}
-          style={{
-            backgroundColor: COLORS.card,
-            color: COLORS.text,
-            padding: 12,
-            borderRadius: 10,
-            marginBottom: 16,
-          }}
         />
 
-        <Text style={{ color: COLORS.text, marginBottom: 6 }}>Payment Mode</Text>
-        <TextInput
-          value={paymentMode}
-          onChangeText={setPaymentMode}
-          placeholder="Credit Card"
-          placeholderTextColor={COLORS.muted}
-          style={{
-            backgroundColor: COLORS.card,
-            color: COLORS.text,
-            padding: 12,
-            borderRadius: 10,
-            marginBottom: 16,
-          }}
-        />
+        <Text style={{ color: COLORS.text, marginBottom: 8, fontWeight: "700" }}>
+          Payment Mode
+        </Text>
 
-        <Text style={{ color: COLORS.text, marginBottom: 6 }}>Special Request</Text>
-        <TextInput
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+          {paymentModes.map((mode) => {
+            const isSelected = paymentMode === mode;
+
+            return (
+              <Pressable
+                key={mode}
+                onPress={() => setPaymentMode(mode)}
+                style={{
+                  backgroundColor: isSelected ? COLORS.primary : COLORS.card,
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: isSelected ? COLORS.primary : COLORS.border,
+                }}
+              >
+                <Text
+                  style={{
+                    color: isSelected ? "#00111A" : COLORS.text,
+                    fontWeight: "800",
+                  }}
+                >
+                  {mode}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Field
+          label="Special Request"
           value={specialRequest}
           onChangeText={setSpecialRequest}
           placeholder="Optional"
-          placeholderTextColor={COLORS.muted}
           multiline
-          style={{
-            backgroundColor: COLORS.card,
-            color: COLORS.text,
-            padding: 12,
-            borderRadius: 10,
-            minHeight: 90,
-            marginBottom: 24,
-          }}
         />
 
         <Pressable
@@ -215,15 +287,59 @@ export default function CreateReservationScreen() {
           style={{
             backgroundColor: submitting ? COLORS.muted : COLORS.primary,
             padding: 16,
-            borderRadius: 12,
+            borderRadius: 14,
             alignItems: "center",
           }}
         >
-          <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "700" }}>
-            {submitting ? "Creating..." : "Create Reservation"}
-          </Text>
+          {submitting ? (
+            <ActivityIndicator color={COLORS.text} />
+          ) : (
+            <Text style={{ color: "#00111A", fontSize: 16, fontWeight: "900" }}>
+              Create Reservation
+            </Text>
+          )}
         </Pressable>
       </ScrollView>
     </>
+  );
+}
+
+type FieldProps = {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  multiline?: boolean;
+};
+
+function Field({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  multiline = false,
+}: FieldProps) {
+  return (
+    <View style={{ marginBottom: 16 }}>
+      <Text style={{ color: COLORS.text, marginBottom: 6 }}>{label}</Text>
+
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder || label}
+        placeholderTextColor={COLORS.muted}
+        multiline={multiline}
+        style={{
+          backgroundColor: COLORS.card,
+          color: COLORS.text,
+          padding: 14,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          minHeight: multiline ? 90 : undefined,
+          textAlignVertical: multiline ? "top" : "center",
+        }}
+      />
+    </View>
   );
 }

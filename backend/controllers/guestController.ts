@@ -23,3 +23,15 @@ export async function getGuestById(req: Request, res: Response) {
     });
   }
 }
+
+export async function createGuest(req: Request, res: Response) {
+  try {
+    const result = await guestService.createGuest(req.body);
+    res.status(201).json(result);
+  } catch (error: any) {
+    console.error("Create guest error:", error);
+    res.status(error.status || 500).json({
+      error: error.message || "Failed to create guest",
+    });
+  }
+}

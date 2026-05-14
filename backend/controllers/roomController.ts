@@ -1,4 +1,3 @@
-// controllers/roomController.ts
 import { Request, Response } from "express";
 import * as roomService from "../services/roomService";
 
@@ -15,9 +14,13 @@ export async function getRooms(req: Request, res: Response) {
 export async function reserveRoom(req: Request, res: Response) {
   try {
     const { RoomNumber } = req.body;
+
     const result = await roomService.reserveRoom(RoomNumber);
+
     res.json(result);
   } catch (error: any) {
+    console.error("Reserve room error:", error);
+
     res.status(error.status || 500).json({
       error: error.message || "Reservation failed",
     });
