@@ -1,180 +1,223 @@
-import { getInsights } from "./aiService";
-
-type AskAIInput = {
-  question: string;
+export type OpenAIStatus = {
+  configured: boolean;
+  model: string;
+  message: string;
 };
 
-type OpenAITextContent = {
-  type: "output_text";
-  text: string;
+type ChatRole = "system" | "user" | "assistant";
+
+type ChatMessage = {
+  role: ChatRole;
+  content: string;
 };
 
-type OpenAIMessageOutput = {
-  type: "message";
-  content?: OpenAITextContent[];
+type ChatOptions = {
+  temperature?: number;
+  maxTokens?: number;
 };
 
-type OpenAIResponseBody = {
-  output_text?: string;
-  output?: OpenAIMessageOutput[];
-  error?: {
-    message?: string;
+const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
+const DEFAULT_MODEL = "gpt-4o-mini";
+
+function getApiKey() {
+  return process.env.OPENAI_API_KEY?.trim() || "";
+}
+
+function getModel() {
+  return process.env.OPENAI_MODEL?.trim() || DEFAULT_MODEL;
+}
+
+function isReasoningOrLatestModel(model: string) {
+  const normalized = model.toLowerCase();
+
+  return (
+    normalized.startsWith("gpt-5") ||
+    normalized.startsWith("o1") ||
+    normalized.startsWith("o3") ||
+    normalized.startsWith("o4")
+  );
+}
+
+export function getOpenAIStatus(): OpenAIStatus {
+  const model = getModel();
+  const configured = Boolean(getApiKey());
+
+  return {
+    configured,
+    model,
+    message: configured
+      ? "OpenAI is configured on the backend."
+      : "OpenAI is not configured. Add OPENAI_API_KEY to backend/.env.",
   };
-};
+}
 
-export class OpenAIAppError extends Error {
-  statusCode: number;
-
-  constructor(message: string, statusCode = 500) {
-    super(message);
-    this.statusCode = statusCode;
+function safeJson(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
   }
 }
 
-const DEFAULT_MODEL = "gpt-5.4-mini";
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-
-function getAPIKey() {
-  const apiKey = process.env.OPENAI_API_KEY;
+async function callOpenAI(messages: ChatMessage[], options: ChatOptions = {}) {
+  const apiKey = getApiKey();
+  const model = getModel();
 
   if (!apiKey) {
-    throw new OpenAIAppError(
-      "OPENAI_API_KEY is missing. Add it to backend/.env and restart the backend.",
-      500
-    );
+    throw {
+      status: 503,
+      message: "OpenAI API key is not configured on the backend",
+    };
   }
 
-  return apiKey;
-}
-
-export function getOpenAIConfigStatus() {
-  const hasKey = Boolean(process.env.OPENAI_API_KEY);
-  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
-
-  return {
-    configured: hasKey,
+  const requestBody: any = {
     model,
-    message: hasKey
-      ? "OpenAI API key is configured on the backend."
-      : "OPENAI_API_KEY is missing in backend/.env.",
+    messages,
+    max_completion_tokens: options.maxTokens ?? 700,
   };
-}
 
-function cleanQuestion(question: string) {
-  return question.trim().slice(0, 700);
-}
+  if (!isReasoningOrLatestModel(model)) {
+    requestBody.temperature = options.temperature ?? 0.3;
+  }
 
-function compactInsights(insights: any) {
-  return {
-    generatedAt: insights.generatedAt,
-    summary: insights.summary,
-    recommendations: insights.recommendations,
-    roomTypePerformance: insights.roomTypePerformance,
-    reservationStatusBreakdown: insights.reservationStatusBreakdown,
-    serviceStatusBreakdown: insights.serviceStatusBreakdown,
-    serviceRevenueByType: insights.serviceRevenueByType,
-    topGuests: insights.topGuests,
-    recentLowFeedback: insights.recentLowFeedback,
-  };
-}
-
-function extractText(body: OpenAIResponseBody) {
-  if (body.output_text) return body.output_text;
-
-  const textParts = body.output
-    ?.flatMap((item) => item.content || [])
-    .filter((content) => content.type === "output_text")
-    .map((content) => content.text)
-    .filter(Boolean);
-
-  return textParts?.join("\n").trim() || "No answer generated.";
-}
-
-async function callOpenAI(input: {
-  instructions: string;
-  text: string;
-  maxOutputTokens?: number;
-}) {
-  const apiKey = getAPIKey();
-  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
-
-  const response = await fetch(OPENAI_RESPONSES_URL, {
+  const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model,
-      instructions: input.instructions,
-      input: input.text,
-      max_output_tokens: input.maxOutputTokens ?? 500,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
-  const body = (await response.json()) as OpenAIResponseBody;
+  const responseText = await response.text();
 
   if (!response.ok) {
-    const message =
-      body.error?.message || `OpenAI API failed with status ${response.status}`;
+    let providerMessage = responseText;
 
-    throw new OpenAIAppError(message, response.status);
+    try {
+      const parsed = JSON.parse(responseText);
+      providerMessage = parsed?.error?.message || responseText;
+    } catch {
+      providerMessage = responseText;
+    }
+
+    throw {
+      status: response.status,
+      message: providerMessage || "OpenAI request failed",
+    };
   }
 
-  return {
-    answer: extractText(body),
-    model,
-    generatedAt: new Date().toISOString(),
-  };
+  let data: any;
+
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    throw {
+      status: 502,
+      message: "OpenAI returned an invalid JSON response",
+    };
+  }
+
+  const content = data?.choices?.[0]?.message?.content;
+
+  if (!content) {
+    throw {
+      status: 502,
+      message: "OpenAI returned an empty response",
+    };
+  }
+
+  return String(content).trim();
 }
 
 export async function testOpenAIConnection() {
-  return callOpenAI({
-    instructions:
-      "You are a connection test assistant. Reply with one short sentence only.",
-    text: "Say: OpenAI connection is working for the hotel management app.",
-    maxOutputTokens: 60,
-  });
+  const answer = await callOpenAI(
+    [
+      {
+        role: "system",
+        content:
+          "You are a backend health-check assistant. Reply in one short sentence.",
+      },
+      {
+        role: "user",
+        content:
+          "Confirm that the OpenAI integration for my hotel management backend is working.",
+      },
+    ],
+    { temperature: 0.1, maxTokens: 80 }
+  );
+
+  return {
+    success: true,
+    message: answer,
+    model: getOpenAIStatus().model,
+  };
 }
 
-export async function askHotelAI(input: AskAIInput) {
-  const question = cleanQuestion(input.question);
+export async function askOpenAI(question: string, context?: unknown) {
+  const cleanQuestion = question.trim();
 
-  if (!question) {
-    throw new OpenAIAppError("Question is required", 400);
+  if (!cleanQuestion) {
+    throw {
+      status: 400,
+      message: "Question is required",
+    };
   }
 
-  const insights = await getInsights();
-
-  return callOpenAI({
-    instructions:
-      "You are an AI assistant inside a hotel management app. Answer like a hotel operations manager. Use only the hotel data provided. Do not invent guests, revenue, reservations, ratings, room counts, or service counts. Be concise, specific, and action-oriented. If the data is not enough, say what is missing.",
-    text: JSON.stringify(
+  return callOpenAI(
+    [
       {
-        userQuestion: question,
-        hotelData: compactInsights(insights),
+        role: "system",
+        content:
+          "You are an AI assistant inside a hotel management app. Give practical manager-facing answers. Use the provided hotel data when available. Do not invent exact numbers that are not in the context.",
       },
-      null,
-      2
-    ),
-    maxOutputTokens: 700,
-  });
+      {
+        role: "user",
+        content: `Hotel context:\n${safeJson(
+          context || {}
+        )}\n\nManager question:\n${cleanQuestion}`,
+      },
+    ],
+    { temperature: 0.35, maxTokens: 850 }
+  );
 }
 
-export async function generateDailyManagerBriefing() {
-  const insights = await getInsights();
-
-  return callOpenAI({
-    instructions:
-      "You are an AI hotel operations manager. Generate a daily manager briefing using only the hotel data provided. Do not invent numbers. Format the answer with these exact sections: 1) Today's Snapshot, 2) Urgent Issues, 3) Revenue Opportunities, 4) Guest Follow-Ups, 5) Recommended Manager Actions. Keep it concise and practical.",
-    text: JSON.stringify(
+export async function generateManagerBriefing(snapshot: unknown) {
+  return callOpenAI(
+    [
       {
-        task: "Generate today's hotel manager briefing.",
-        hotelData: compactInsights(insights),
+        role: "system",
+        content:
+          "You are an operations manager for a hotel. Create a concise daily manager briefing. Use headings: Today Snapshot, Risks, Revenue Opportunities, Recommended Actions. Keep it practical and do not exaggerate.",
       },
-      null,
-      2
-    ),
-    maxOutputTokens: 900,
-  });
+      {
+        role: "user",
+        content: `Create today's hotel manager briefing from this operational snapshot:\n${safeJson(
+          snapshot
+        )}`,
+      },
+    ],
+    { temperature: 0.25, maxTokens: 900 }
+  );
+}
+
+export async function generateActionPlan(snapshot: unknown, actionItems: unknown) {
+  return callOpenAI(
+    [
+      {
+        role: "system",
+        content:
+          "You are a hotel general manager. Convert operational issues into a short execution plan. Use these exact headings: Priority Order, Who Should Act, Guest Experience Impact, Revenue Impact, Next 24 Hours. Be specific but concise.",
+      },
+      {
+        role: "user",
+        content: `Operational snapshot:\n${safeJson(
+          snapshot
+        )}\n\nRule-based action items:\n${safeJson(
+          actionItems
+        )}\n\nCreate an execution plan for the manager.`,
+      },
+    ],
+    { temperature: 0.25, maxTokens: 900 }
+  );
 }

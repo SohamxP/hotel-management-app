@@ -2,18 +2,22 @@ import express from "express";
 import { verifyToken } from "../middleware/auth";
 import {
   askAI,
-  generateBriefing,
+  createActionPlan,
+  createManagerBriefing,
+  getActions,
+  getAIStatus,
   getInsights,
-  getOpenAIStatus,
-  testOpenAI,
+  testAI,
 } from "../controllers/aiController";
 
 const router = express.Router();
 
+router.get("/status", verifyToken, getAIStatus);
+router.get("/test", verifyToken, testAI);
 router.get("/insights", verifyToken, getInsights);
-router.get("/status", verifyToken, getOpenAIStatus);
-router.get("/test", verifyToken, testOpenAI);
+router.get("/actions", verifyToken, getActions);
 router.post("/ask", verifyToken, askAI);
-router.post("/briefing", verifyToken, generateBriefing);
+router.post("/briefing", verifyToken, createManagerBriefing);
+router.post("/action-plan", verifyToken, createActionPlan);
 
 export default router;

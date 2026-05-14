@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 const tintColorLight = "#0a7ea4";
 const tintColorDark = "#fff";
 
-export const COLORS = {
+export const Colors = {
   light: {
     text: "#11181C",
     background: "#fff",
@@ -20,6 +20,10 @@ export const COLORS = {
     tabIconDefault: "#9BA1A6",
     tabIconSelected: tintColorDark,
   },
+};
+
+export const COLORS = {
+  ...Colors,
 
   bg: "#0B0F14",
   card: "#151B23",
@@ -32,8 +36,6 @@ export const COLORS = {
   warning: "#F59E0B",
   border: "#263241",
 };
-
-export const Colors = COLORS;
 
 export const radius = {
   md: 12,

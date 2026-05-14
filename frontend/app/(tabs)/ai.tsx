@@ -1,5 +1,6 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,289 +13,229 @@ import {
 import { API } from "../../api/api";
 import { COLORS } from "../../constants/theme";
 
-type OpenAIStatus = {
+type AIStatus = {
+  success?: boolean;
   configured: boolean;
   model: string;
   message: string;
 };
 
-type AIAnswer = {
-  answer: string;
-  model: string;
-  generatedAt: string;
-};
+type InsightSeverity = "critical" | "warning" | "info" | "success";
 
-type Summary = {
-  totalRooms: number;
-  availableRooms: number;
-  reservedRooms: number;
-  occupiedRooms: number;
-  blockedRooms: number;
-  totalGuests: number;
-  totalReservations: number;
-  activeReservations: number;
-  cancelledReservations: number;
-  pendingServices: number;
-  inProgressServices: number;
-  completedServiceRevenue: number;
-  reservationRevenue: number;
-  avgRoomRating: number | null;
-  avgCustomerServiceRating: number | null;
-  avgSafetyRating: number | null;
-  avgBreakfastRating: number | null;
-};
-
-type Recommendation = {
+type LocalInsight = {
+  id: string;
   title: string;
-  priority: "High" | "Medium" | "Low";
-  reason: string;
-  action: string;
+  description: string;
+  severity: InsightSeverity;
+  metricLabel: string;
+  metricValue: string;
+  recommendation: string;
 };
 
-type RoomTypePerformance = {
-  RoomType: string;
-  totalRooms: number;
-  availableRooms: number;
-  reservedRooms: number;
-  occupiedRooms: number;
-  blockedRooms: number;
-  avgRate: number;
+type ActionPriority = "High" | "Medium" | "Low";
+
+type ActionItem = {
+  id: string;
+  priority: ActionPriority;
+  title: string;
+  description: string;
+  owner: string;
+  due: string;
+  impact: string;
+  source: string;
 };
 
-type ServiceRevenue = {
-  ServiceType: string;
-  serviceCount: number;
-  totalRevenue: number;
-  avgPrice: number;
-};
-
-type TopGuest = {
-  GuestID: number;
-  guestName: string;
-  MembershipLevel: string | null;
-  reservationCount: number;
-  totalSpent: number;
-};
-
-type LowFeedback = {
-  FeedbackID: number;
-  ReservationID: number;
-  guestName: string;
-  RoomType: string;
-  RoomRating: number;
-  BreakfastRating: number;
-  SafetyRating: number;
-  CustSvcRating: number;
-  Comments: string;
-  SubmissionDate: string;
-};
-
-type Insights = {
+type ActionCenterResponse = {
+  success: boolean;
   generatedAt: string;
-  summary: Summary;
-  recommendations: Recommendation[];
-  roomTypePerformance: RoomTypePerformance[];
-  serviceRevenueByType: ServiceRevenue[];
-  topGuests: TopGuest[];
-  recentLowFeedback: LowFeedback[];
+  summary: {
+    totalRooms: number;
+    availableRooms: number;
+    reservedRooms: number;
+    occupiedRooms: number;
+    blockedRoomCount: number;
+    availabilityRate: number;
+    pendingReservations: number;
+    confirmedReservations: number;
+    openServiceCount: number;
+    pendingServices: number;
+    inProgressServices: number;
+    lowFeedbackCount: number;
+    reservationRevenue: number;
+    completedServiceRevenue: number;
+  };
+  insights: LocalInsight[];
+  actionItems: ActionItem[];
 };
 
-const SAMPLE_QUESTIONS = [
-  "What should the hotel manager focus on today?",
-  "Which room type should we promote?",
-  "What service is making the most revenue?",
-  "Which guests need follow-up?",
-];
+const DEFAULT_QUESTION =
+  "What should the hotel manager focus on today based on the current data?";
 
-function money(value: number | string | null | undefined) {
-  return `$${Number(value || 0).toFixed(2)}`;
+function getSeverityColor(severity: InsightSeverity) {
+  if (severity === "critical") return COLORS.danger;
+  if (severity === "warning") return COLORS.warning;
+  if (severity === "success") return COLORS.success;
+  return COLORS.primary;
 }
 
-function rating(value: number | null | undefined) {
-  if (!value) return "N/A";
-  return `${Number(value).toFixed(2)}/5`;
-}
-
-function priorityColor(priority: Recommendation["priority"]) {
+function getPriorityColor(priority: ActionPriority) {
   if (priority === "High") return COLORS.danger;
   if (priority === "Medium") return COLORS.warning;
-  return COLORS.success;
+  return COLORS.primary;
 }
 
-export default function AIInsightsScreen() {
-  const [status, setStatus] = useState<OpenAIStatus | null>(null);
-  const [insights, setInsights] = useState<Insights | null>(null);
-  const [aiAnswer, setAIAnswer] = useState<AIAnswer | null>(null);
-  const [briefing, setBriefing] = useState<AIAnswer | null>(null);
+function formatMoney(value: number) {
+  const safeValue = Number(value || 0);
+  return `$${safeValue.toFixed(2)}`;
+}
 
-  const [question, setQuestion] = useState(
-    "What should the hotel manager focus on today?"
+export default function AIScreen() {
+  const [status, setStatus] = useState<AIStatus | null>(null);
+  const [actionCenter, setActionCenter] = useState<ActionCenterResponse | null>(
+    null
   );
+  const [briefing, setBriefing] = useState("");
+  const [actionPlan, setActionPlan] = useState("");
+  const [question, setQuestion] = useState(DEFAULT_QUESTION);
+  const [answer, setAnswer] = useState("");
 
-  const [loading, setLoading] = useState(true);
-  const [testing, setTesting] = useState(false);
-  const [asking, setAsking] = useState(false);
-  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [loadingActions, setLoadingActions] = useState(true);
+  const [loadingBriefing, setLoadingBriefing] = useState(false);
+  const [loadingActionPlan, setLoadingActionPlan] = useState(false);
+  const [loadingAnswer, setLoadingAnswer] = useState(false);
+  const [testingOpenAI, setTestingOpenAI] = useState(false);
 
-  const getErrorMessage = (error: any) => {
-    const statusCode = error.response?.status;
-    const backendMessage =
-      error.response?.data?.error ||
-      error.response?.data?.message ||
-      error.message ||
-      "Something went wrong";
+  const riskCount = useMemo(() => {
+    return (actionCenter?.insights || []).filter(
+      (item) => item.severity === "critical" || item.severity === "warning"
+    ).length;
+  }, [actionCenter]);
 
-    return statusCode ? `Status ${statusCode}: ${backendMessage}` : backendMessage;
-  };
+  const highPriorityCount = useMemo(() => {
+    return (actionCenter?.actionItems || []).filter(
+      (item) => item.priority === "High"
+    ).length;
+  }, [actionCenter]);
 
-  const loadAIPage = async () => {
+  const loadStatus = async () => {
     try {
-      setLoading(true);
-
-      const [statusRes, insightsRes] = await Promise.all([
-        API.get("/api/ai/status"),
-        API.get("/api/ai/insights"),
-      ]);
-
-      setStatus(statusRes.data);
-      setInsights(insightsRes.data);
+      setLoadingStatus(true);
+      const res = await API.get("/api/ai/status");
+      setStatus(res.data);
     } catch (error: any) {
-      console.log("AI PAGE LOAD ERROR:", error.response?.data || error.message);
-      Alert.alert("AI Page Error", getErrorMessage(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const testOpenAI = async () => {
-    try {
-      setTesting(true);
-
-      const res = await API.get("/api/ai/test");
-
-      setAIAnswer({
-        answer: res.data.answer,
-        model: res.data.model,
-        generatedAt: res.data.generatedAt,
+      console.log("AI status error:", error.response?.data || error.message);
+      setStatus({
+        configured: false,
+        model: "Unknown",
+        message: "Could not load OpenAI status from backend.",
       });
-
-      Alert.alert("OpenAI Test Passed", res.data.answer);
-    } catch (error: any) {
-      console.log("OPENAI TEST ERROR:", error.response?.data || error.message);
-      Alert.alert("OpenAI Test Failed", getErrorMessage(error));
     } finally {
-      setTesting(false);
+      setLoadingStatus(false);
     }
   };
 
-  const generateBriefing = async () => {
+  const loadActionCenter = async () => {
     try {
-      setBriefingLoading(true);
-
-      const res = await API.post("/api/ai/briefing");
-
-      setBriefing({
-        answer: res.data.answer,
-        model: res.data.model,
-        generatedAt: res.data.generatedAt,
-      });
+      setLoadingActions(true);
+      const res = await API.get("/api/ai/actions");
+      setActionCenter(res.data);
     } catch (error: any) {
-      console.log("BRIEFING ERROR:", error.response?.data || error.message);
-      Alert.alert("Briefing Error", getErrorMessage(error));
+      console.log("AI actions error:", error.response?.data || error.message);
+      Alert.alert("Error", "Failed to load AI action center");
     } finally {
-      setBriefingLoading(false);
-    }
-  };
-
-  const askOpenAI = async (customQuestion?: string) => {
-    const finalQuestion = (customQuestion || question).trim();
-
-    if (!finalQuestion) {
-      Alert.alert("Missing Question", "Type a question first.");
-      return;
-    }
-
-    try {
-      setAsking(true);
-      setQuestion(finalQuestion);
-
-      const res = await API.post("/api/ai/ask", {
-        question: finalQuestion,
-      });
-
-      setAIAnswer(res.data);
-    } catch (error: any) {
-      console.log("OPENAI ASK ERROR:", error.response?.data || error.message);
-      Alert.alert("OpenAI Error", getErrorMessage(error));
-    } finally {
-      setAsking(false);
+      setLoadingActions(false);
     }
   };
 
   useFocusEffect(
     useCallback(() => {
-      loadAIPage();
+      loadStatus();
+      loadActionCenter();
     }, [])
   );
 
-  if (loading) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: COLORS.bg,
-          justifyContent: "center",
-        }}
-      >
-        <ActivityIndicator color={COLORS.primary} />
-      </View>
-    );
-  }
+  const testOpenAI = async () => {
+    try {
+      setTestingOpenAI(true);
+      const res = await API.get("/api/ai/test");
+      Alert.alert("OpenAI Test", res.data.message || "OpenAI is working.");
+    } catch (error: any) {
+      console.log("OpenAI test error:", error.response?.data || error.message);
+      Alert.alert(
+        "OpenAI Test Failed",
+        error.response?.data?.error || "Could not test OpenAI."
+      );
+    } finally {
+      setTestingOpenAI(false);
+    }
+  };
 
-  if (!insights) {
-    return (
-      <View style={{ flex: 1, backgroundColor: COLORS.bg, padding: 20 }}>
-        <Stack.Screen
-          options={{
-            title: "AI",
-            headerStyle: { backgroundColor: COLORS.bg },
-            headerTintColor: COLORS.text,
-          }}
-        />
+  const generateBriefing = async () => {
+    try {
+      setLoadingBriefing(true);
+      setBriefing("");
+      const res = await API.post("/api/ai/briefing");
+      setBriefing(res.data.briefing || "No briefing returned.");
+    } catch (error: any) {
+      console.log("AI briefing error:", error.response?.data || error.message);
+      Alert.alert(
+        "Briefing failed",
+        error.response?.data?.error || "Could not generate manager briefing."
+      );
+    } finally {
+      setLoadingBriefing(false);
+    }
+  };
 
-        <Text style={{ color: COLORS.text, fontSize: 28, fontWeight: "900" }}>
-          AI
-        </Text>
+  const generateActionPlan = async () => {
+    try {
+      setLoadingActionPlan(true);
+      setActionPlan("");
+      const res = await API.post("/api/ai/action-plan");
+      setActionPlan(res.data.actionPlan || "No action plan returned.");
+    } catch (error: any) {
+      console.log("AI action plan error:", error.response?.data || error.message);
+      Alert.alert(
+        "Action plan failed",
+        error.response?.data?.error || "Could not generate OpenAI action plan."
+      );
+    } finally {
+      setLoadingActionPlan(false);
+    }
+  };
 
-        <Text style={{ color: COLORS.muted, marginTop: 10 }}>
-          Insights could not be loaded. Check the backend terminal.
-        </Text>
+  const askAI = async () => {
+    const cleanQuestion = question.trim();
 
-        <Pressable
-          onPress={loadAIPage}
-          style={{
-            backgroundColor: COLORS.primary,
-            padding: 14,
-            borderRadius: 14,
-            alignItems: "center",
-            marginTop: 18,
-          }}
-        >
-          <Text style={{ color: "#00111A", fontWeight: "900" }}>
-            Try Again
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }
+    if (!cleanQuestion) {
+      Alert.alert("Missing question", "Type a question for OpenAI first.");
+      return;
+    }
 
-  const summary = insights.summary;
+    try {
+      setLoadingAnswer(true);
+      setAnswer("");
+      const res = await API.post("/api/ai/ask", {
+        question: cleanQuestion,
+      });
+      setAnswer(res.data.answer || "No answer returned.");
+    } catch (error: any) {
+      console.log("Ask AI error:", error.response?.data || error.message);
+      Alert.alert(
+        "Ask OpenAI failed",
+        error.response?.data?.error || "Could not get an AI answer."
+      );
+    } finally {
+      setLoadingAnswer(false);
+    }
+  };
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: "AI",
+          title: "AI Assistant",
           headerStyle: { backgroundColor: COLORS.bg },
           headerTintColor: COLORS.text,
         }}
@@ -302,579 +243,550 @@ export default function AIInsightsScreen() {
 
       <ScrollView
         style={{ flex: 1, backgroundColor: COLORS.bg }}
-        contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 36 }}
       >
-        <Text style={{ color: COLORS.text, fontSize: 30, fontWeight: "900" }}>
-          AI Hotel Assistant
-        </Text>
-
-        <Text style={{ color: COLORS.muted, marginTop: 6 }}>
-          Ask OpenAI questions using your hotel database insights.
-        </Text>
-
-        <View
-          style={{
-            backgroundColor: COLORS.card,
-            padding: 16,
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            marginTop: 18,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontSize: 21, fontWeight: "900" }}>
-            OpenAI Status
+        <View style={{ marginBottom: 20 }}>
+          <Text style={{ color: COLORS.text, fontSize: 30, fontWeight: "900" }}>
+            AI Manager
           </Text>
+          <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 20 }}>
+            Local hotel insights plus OpenAI-generated manager recommendations.
+          </Text>
+        </View>
 
-          <View
-            style={{
-              marginTop: 12,
-              padding: 12,
-              borderRadius: 14,
-              backgroundColor: status?.configured ? "#0F2A1A" : "#2A1616",
-              borderWidth: 1,
-              borderColor: status?.configured ? COLORS.success : COLORS.danger,
-            }}
-          >
-            <Text
-              style={{
-                color: status?.configured ? COLORS.success : COLORS.danger,
-                fontWeight: "900",
-                fontSize: 16,
-              }}
-            >
-              {status?.configured ? "Configured" : "Not Configured"}
-            </Text>
+        <StatusCard
+          status={status}
+          loading={loadingStatus}
+          testing={testingOpenAI}
+          onRefresh={loadStatus}
+          onTest={testOpenAI}
+        />
 
-            <Text style={{ color: COLORS.text, marginTop: 6 }}>
-              Model: {status?.model || "Unknown"}
+        {loadingActions ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator color={COLORS.primary} />
+            <Text style={{ color: COLORS.muted, marginTop: 10 }}>
+              Loading action center...
             </Text>
+          </View>
+        ) : actionCenter ? (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <View>
+                <Text style={styles.sectionTitle}>Action Center</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Prioritized from live SQLite data
+                </Text>
+              </View>
 
-            <Text style={{ color: COLORS.muted, marginTop: 6 }}>
-              {status?.message || "No status message received."}
-            </Text>
+              <Pressable style={styles.smallButton} onPress={loadActionCenter}>
+                <Ionicons name="refresh-outline" size={16} color="#00111A" />
+                <Text style={styles.smallButtonText}>Refresh</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.grid}>
+              <MetricCard
+                label="Available"
+                value={`${actionCenter.summary.availableRooms}/${actionCenter.summary.totalRooms}`}
+              />
+              <MetricCard
+                label="Availability"
+                value={`${actionCenter.summary.availabilityRate}%`}
+              />
+              <MetricCard
+                label="Open Services"
+                value={String(actionCenter.summary.openServiceCount)}
+              />
+              <MetricCard label="Risks" value={String(riskCount)} />
+              <MetricCard
+                label="High Priority"
+                value={String(highPriorityCount)}
+              />
+              <MetricCard
+                label="Service Revenue"
+                value={formatMoney(actionCenter.summary.completedServiceRevenue)}
+              />
+            </View>
+
+            <Text style={styles.sectionTitle}>Local AI Insights</Text>
+            {actionCenter.insights.map((item) => (
+              <InsightCard key={item.id} insight={item} />
+            ))}
+
+            <Text style={styles.sectionTitle}>Manager Action Items</Text>
+            {actionCenter.actionItems.map((item) => (
+              <ActionCard key={item.id} item={item} />
+            ))}
+          </>
+        ) : null}
+
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.iconBubble}>
+              <Ionicons name="newspaper-outline" size={20} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Daily Manager Briefing</Text>
+              <Text style={styles.cardSubtitle}>
+                OpenAI summary for the manager
+              </Text>
+            </View>
           </View>
 
           <Pressable
-            onPress={testOpenAI}
-            disabled={testing}
-            style={{
-              backgroundColor: testing ? COLORS.muted : COLORS.primary,
-              padding: 14,
-              borderRadius: 14,
-              alignItems: "center",
-              marginTop: 14,
-            }}
+            style={[styles.primaryButton, loadingBriefing && styles.disabledButton]}
+            onPress={generateBriefing}
+            disabled={loadingBriefing}
           >
-            {testing ? (
+            {loadingBriefing ? (
               <ActivityIndicator color="#00111A" />
             ) : (
-              <Text style={{ color: "#00111A", fontWeight: "900" }}>
-                Test OpenAI Connection
-              </Text>
+              <>
+                <Ionicons name="sparkles-outline" size={18} color="#00111A" />
+                <Text style={styles.primaryButtonText}>Generate Briefing</Text>
+              </>
             )}
           </Pressable>
+
+          {briefing ? <AITextBlock text={briefing} /> : null}
         </View>
 
-        <View
-          style={{
-            backgroundColor: COLORS.card,
-            padding: 16,
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            marginTop: 18,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontSize: 21, fontWeight: "900" }}>
-            Daily Manager Briefing
-          </Text>
-
-          <Text style={{ color: COLORS.muted, marginTop: 8, lineHeight: 20 }}>
-            Generates a structured manager summary using rooms, reservations,
-            services, revenue, guests, and feedback.
-          </Text>
-
-          <Pressable
-            onPress={generateBriefing}
-            disabled={briefingLoading}
-            style={{
-              backgroundColor: briefingLoading ? COLORS.muted : COLORS.primary,
-              padding: 14,
-              borderRadius: 14,
-              alignItems: "center",
-              marginTop: 14,
-            }}
-          >
-            {briefingLoading ? (
-              <ActivityIndicator color="#00111A" />
-            ) : (
-              <Text style={{ color: "#00111A", fontWeight: "900" }}>
-                Generate Daily Briefing
-              </Text>
-            )}
-          </Pressable>
-
-          {briefing && (
-            <View
-              style={{
-                backgroundColor: COLORS.bg,
-                borderRadius: 14,
-                padding: 14,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                marginTop: 14,
-              }}
-            >
-              <Text
-                style={{
-                  color: COLORS.primary,
-                  fontWeight: "900",
-                  marginBottom: 8,
-                }}
-              >
-                Model: {briefing.model}
-              </Text>
-
-              <Text style={{ color: COLORS.text, lineHeight: 21 }}>
-                {briefing.answer}
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.iconBubble}>
+              <Ionicons name="checkbox-outline" size={20} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>OpenAI Action Plan</Text>
+              <Text style={styles.cardSubtitle}>
+                Converts local actions into an execution plan
               </Text>
             </View>
-          )}
+          </View>
+
+          <Pressable
+            style={[styles.primaryButton, loadingActionPlan && styles.disabledButton]}
+            onPress={generateActionPlan}
+            disabled={loadingActionPlan}
+          >
+            {loadingActionPlan ? (
+              <ActivityIndicator color="#00111A" />
+            ) : (
+              <>
+                <Ionicons name="flash-outline" size={18} color="#00111A" />
+                <Text style={styles.primaryButtonText}>Generate Action Plan</Text>
+              </>
+            )}
+          </Pressable>
+
+          {actionPlan ? <AITextBlock text={actionPlan} /> : null}
         </View>
 
-        <View
-          style={{
-            backgroundColor: COLORS.card,
-            padding: 16,
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            marginTop: 18,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontSize: 21, fontWeight: "900" }}>
-            Ask OpenAI
-          </Text>
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.iconBubble}>
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Ask OpenAI</Text>
+              <Text style={styles.cardSubtitle}>
+                Ask questions using the current hotel snapshot
+              </Text>
+            </View>
+          </View>
 
           <TextInput
             value={question}
             onChangeText={setQuestion}
-            multiline
-            placeholder="Ask something about hotel operations..."
+            placeholder="Ask a hotel operations question..."
             placeholderTextColor={COLORS.muted}
-            style={{
-              minHeight: 95,
-              color: COLORS.text,
-              backgroundColor: COLORS.bg,
-              borderColor: COLORS.border,
-              borderWidth: 1,
-              borderRadius: 14,
-              padding: 12,
-              marginTop: 12,
-              textAlignVertical: "top",
-            }}
+            multiline
+            style={styles.input}
           />
 
           <Pressable
-            onPress={() => askOpenAI()}
-            disabled={asking}
-            style={{
-              backgroundColor: asking ? COLORS.muted : COLORS.primary,
-              padding: 14,
-              borderRadius: 14,
-              alignItems: "center",
-              marginTop: 12,
-            }}
+            style={[styles.primaryButton, loadingAnswer && styles.disabledButton]}
+            onPress={askAI}
+            disabled={loadingAnswer}
           >
-            {asking ? (
+            {loadingAnswer ? (
               <ActivityIndicator color="#00111A" />
             ) : (
-              <Text style={{ color: "#00111A", fontWeight: "900" }}>
-                Generate OpenAI Answer
-              </Text>
+              <>
+                <Ionicons name="send-outline" size={18} color="#00111A" />
+                <Text style={styles.primaryButtonText}>Ask OpenAI</Text>
+              </>
             )}
           </Pressable>
 
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 8,
-              marginTop: 12,
-            }}
-          >
-            {SAMPLE_QUESTIONS.map((item) => (
-              <Pressable
-                key={item}
-                onPress={() => askOpenAI(item)}
-                disabled={asking}
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                  borderRadius: 999,
-                }}
-              >
-                <Text style={{ color: COLORS.primary, fontWeight: "800" }}>
-                  {item}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {aiAnswer && (
-            <View
-              style={{
-                backgroundColor: COLORS.bg,
-                borderRadius: 14,
-                padding: 14,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                marginTop: 14,
-              }}
-            >
-              <Text
-                style={{
-                  color: COLORS.primary,
-                  fontWeight: "900",
-                  marginBottom: 8,
-                }}
-              >
-                Model: {aiAnswer.model}
-              </Text>
-
-              <Text style={{ color: COLORS.text, lineHeight: 21 }}>
-                {aiAnswer.answer}
-              </Text>
-            </View>
-          )}
+          {answer ? <AITextBlock text={answer} /> : null}
         </View>
-
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
-          <StatCard title="Rooms" value={summary.totalRooms} />
-          <StatCard title="Available" value={summary.availableRooms} />
-          <StatCard title="Guests" value={summary.totalGuests} />
-        </View>
-
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-          <StatCard title="Active Res." value={summary.activeReservations} />
-          <StatCard title="Pending Svc." value={summary.pendingServices} />
-          <StatCard title="Blocked" value={summary.blockedRooms} />
-        </View>
-
-        <View
-          style={{
-            backgroundColor: COLORS.card,
-            padding: 16,
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            marginTop: 18,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900" }}>
-            Revenue + Ratings
-          </Text>
-
-          <View style={{ marginTop: 14 }}>
-            <Info
-              label="Reservation Revenue"
-              value={money(summary.reservationRevenue)}
-            />
-            <Info
-              label="Completed Service Revenue"
-              value={money(summary.completedServiceRevenue)}
-            />
-            <Info
-              label="Average Room Rating"
-              value={rating(summary.avgRoomRating)}
-            />
-            <Info
-              label="Average Customer Service Rating"
-              value={rating(summary.avgCustomerServiceRating)}
-            />
-            <Info
-              label="Average Safety Rating"
-              value={rating(summary.avgSafetyRating)}
-            />
-            <Info
-              label="Average Breakfast Rating"
-              value={rating(summary.avgBreakfastRating)}
-            />
-          </View>
-        </View>
-
-        <SectionTitle title="Rule-Based Recommendations" />
-
-        {insights.recommendations.map((item, index) => (
-          <View
-            key={`${item.title}-${index}`}
-            style={{
-              backgroundColor: COLORS.card,
-              padding: 16,
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              marginBottom: 14,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-            >
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: 19,
-                  fontWeight: "900",
-                  flex: 1,
-                }}
-              >
-                {item.title}
-              </Text>
-
-              <View
-                style={{
-                  backgroundColor: priorityColor(item.priority),
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: 999,
-                  alignSelf: "flex-start",
-                }}
-              >
-                <Text style={{ color: "#00111A", fontWeight: "900" }}>
-                  {item.priority}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={{ color: COLORS.muted, marginTop: 10 }}>
-              {item.reason}
-            </Text>
-
-            <Text style={{ color: COLORS.text, marginTop: 10, lineHeight: 20 }}>
-              {item.action}
-            </Text>
-          </View>
-        ))}
-
-        <SectionTitle title="Room Type Performance" />
-
-        {insights.roomTypePerformance.map((item) => (
-          <View
-            key={item.RoomType}
-            style={{
-              backgroundColor: COLORS.card,
-              padding: 16,
-              borderRadius: 16,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              marginBottom: 12,
-            }}
-          >
-            <Text
-              style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}
-            >
-              {item.RoomType}
-            </Text>
-
-            <Text style={{ color: COLORS.muted, marginTop: 6 }}>
-              {item.availableRooms} available • {item.reservedRooms} reserved •{" "}
-              {item.occupiedRooms} occupied • {item.blockedRooms} blocked
-            </Text>
-
-            <Text
-              style={{
-                color: COLORS.primary,
-                marginTop: 6,
-                fontWeight: "800",
-              }}
-            >
-              Average rate: {money(item.avgRate)}
-            </Text>
-          </View>
-        ))}
-
-        <SectionTitle title="Service Revenue" />
-
-        {insights.serviceRevenueByType.map((item) => (
-          <View
-            key={item.ServiceType}
-            style={{
-              backgroundColor: COLORS.card,
-              padding: 16,
-              borderRadius: 16,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              marginBottom: 12,
-            }}
-          >
-            <Text
-              style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}
-            >
-              {item.ServiceType}
-            </Text>
-
-            <Text style={{ color: COLORS.muted, marginTop: 6 }}>
-              {item.serviceCount} requests • Avg {money(item.avgPrice)}
-            </Text>
-
-            <Text
-              style={{
-                color: COLORS.primary,
-                marginTop: 6,
-                fontWeight: "800",
-              }}
-            >
-              Total: {money(item.totalRevenue)}
-            </Text>
-          </View>
-        ))}
-
-        <SectionTitle title="Top Guests" />
-
-        {insights.topGuests.map((item) => (
-          <View
-            key={item.GuestID}
-            style={{
-              backgroundColor: COLORS.card,
-              padding: 16,
-              borderRadius: 16,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              marginBottom: 12,
-            }}
-          >
-            <Text
-              style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}
-            >
-              {item.guestName}
-            </Text>
-
-            <Text style={{ color: COLORS.muted, marginTop: 6 }}>
-              {item.MembershipLevel || "No membership"} •{" "}
-              {item.reservationCount} reservations
-            </Text>
-
-            <Text
-              style={{
-                color: COLORS.primary,
-                marginTop: 6,
-                fontWeight: "800",
-              }}
-            >
-              Total spent: {money(item.totalSpent)}
-            </Text>
-          </View>
-        ))}
-
-        <SectionTitle title="Recent Low Feedback" />
-
-        {insights.recentLowFeedback.length === 0 ? (
-          <Text style={{ color: COLORS.muted }}>No low feedback found.</Text>
-        ) : (
-          insights.recentLowFeedback.map((item) => (
-            <View
-              key={item.FeedbackID}
-              style={{
-                backgroundColor: COLORS.card,
-                padding: 16,
-                borderRadius: 16,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                marginBottom: 12,
-              }}
-            >
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: 18,
-                  fontWeight: "900",
-                }}
-              >
-                {item.guestName} • {item.RoomType}
-              </Text>
-
-              <Text style={{ color: COLORS.muted, marginTop: 6 }}>
-                Room {item.RoomRating}/5 • Breakfast {item.BreakfastRating}/5 •
-                Safety {item.SafetyRating}/5 • Service {item.CustSvcRating}/5
-              </Text>
-
-              <Text style={{ color: COLORS.text, marginTop: 8 }}>
-                {item.Comments}
-              </Text>
-            </View>
-          ))
-        )}
       </ScrollView>
     </>
   );
 }
 
-function StatCard({ title, value }: { title: string; value: number }) {
-  return (
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: COLORS.card,
-        padding: 12,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-      }}
-    >
-      <Text style={{ color: COLORS.muted, fontSize: 12 }}>{title}</Text>
+function StatusCard({
+  status,
+  loading,
+  testing,
+  onRefresh,
+  onTest,
+}: {
+  status: AIStatus | null;
+  loading: boolean;
+  testing: boolean;
+  onRefresh: () => void;
+  onTest: () => void;
+}) {
+  const configured = Boolean(status?.configured);
 
-      <Text
-        style={{
-          color: COLORS.primary,
-          fontSize: 23,
-          fontWeight: "900",
-          marginTop: 6,
-        }}
-      >
-        {value}
-      </Text>
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <View
+          style={[
+            styles.statusDot,
+            { backgroundColor: configured ? COLORS.success : COLORS.warning },
+          ]}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardTitle}>OpenAI Backend Status</Text>
+          <Text style={styles.cardSubtitle}>
+            {loading ? "Checking backend..." : status?.message || "Unknown status"}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.statusLine}>
+        <Text style={styles.statusLabel}>Model</Text>
+        <Text style={styles.statusValue}>{status?.model || "Unknown"}</Text>
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+        <Pressable style={styles.secondaryButton} onPress={onRefresh}>
+          <Text style={styles.secondaryButtonText}>Refresh</Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.secondaryButton, testing && styles.disabledButton]}
+          onPress={onTest}
+          disabled={testing}
+        >
+          {testing ? (
+            <ActivityIndicator color={COLORS.primary} />
+          ) : (
+            <Text style={styles.secondaryButtonText}>Test</Text>
+          )}
+        </Pressable>
+      </View>
     </View>
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <View style={{ marginBottom: 12 }}>
-      <Text style={{ color: COLORS.muted, fontSize: 13 }}>{label}</Text>
-
-      <Text
-        style={{
-          color: COLORS.text,
-          fontSize: 17,
-          fontWeight: "800",
-          marginTop: 3,
-        }}
-      >
-        {value}
-      </Text>
+    <View style={styles.metricCard}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue}>{value}</Text>
     </View>
   );
 }
 
-function SectionTitle({ title }: { title: string }) {
+function InsightCard({ insight }: { insight: LocalInsight }) {
+  const color = getSeverityColor(insight.severity);
+
   return (
-    <Text
-      style={{
-        color: COLORS.text,
-        fontSize: 22,
-        fontWeight: "900",
-        marginTop: 24,
-        marginBottom: 12,
-      }}
-    >
-      {title}
-    </Text>
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <View style={[styles.pill, { borderColor: color }]}>
+          <Text style={[styles.pillText, { color }]}>
+            {insight.severity.toUpperCase()}
+          </Text>
+        </View>
+        <View style={{ flex: 1 }} />
+        <Text style={{ color: COLORS.primary, fontWeight: "900" }}>
+          {insight.metricValue}
+        </Text>
+      </View>
+
+      <Text style={styles.cardTitle}>{insight.title}</Text>
+      <Text style={styles.bodyText}>{insight.description}</Text>
+
+      <View style={styles.recommendationBox}>
+        <Text style={styles.recommendationLabel}>{insight.metricLabel}</Text>
+        <Text style={styles.recommendationText}>{insight.recommendation}</Text>
+      </View>
+    </View>
   );
 }
+
+function ActionCard({ item }: { item: ActionItem }) {
+  const color = getPriorityColor(item.priority);
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <View style={[styles.pill, { borderColor: color }]}>
+          <Text style={[styles.pillText, { color }]}>{item.priority}</Text>
+        </View>
+        <View style={{ flex: 1 }} />
+        <Text style={{ color: COLORS.muted, fontSize: 12 }}>{item.id}</Text>
+      </View>
+
+      <Text style={styles.cardTitle}>{item.title}</Text>
+      <Text style={styles.bodyText}>{item.description}</Text>
+
+      <View style={styles.actionMetaGrid}>
+        <Meta label="Owner" value={item.owner} />
+        <Meta label="Due" value={item.due} />
+      </View>
+
+      <View style={styles.recommendationBox}>
+        <Text style={styles.recommendationLabel}>{item.source}</Text>
+        <Text style={styles.recommendationText}>{item.impact}</Text>
+      </View>
+    </View>
+  );
+}
+
+function Meta({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.metaBox}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metaValue}>{value}</Text>
+    </View>
+  );
+}
+
+function AITextBlock({ text }: { text: string }) {
+  return (
+    <View style={styles.aiTextBlock}>
+      <Text style={styles.aiText}>{text}</Text>
+    </View>
+  );
+}
+
+const styles = {
+  card: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+  },
+  loadingCard: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 22,
+    marginBottom: 16,
+    alignItems: "center" as const,
+  },
+  cardHeaderRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 12,
+    marginBottom: 10,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    color: COLORS.text,
+    fontSize: 22,
+    fontWeight: "900" as const,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  sectionSubtitle: {
+    color: COLORS.muted,
+    fontSize: 13,
+  },
+  cardTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: "900" as const,
+  },
+  cardSubtitle: {
+    color: COLORS.muted,
+    fontSize: 13,
+    marginTop: 3,
+    lineHeight: 18,
+  },
+  bodyText: {
+    color: COLORS.muted,
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  statusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 99,
+  },
+  iconBubble: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    backgroundColor: COLORS.card2,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  statusLine: {
+    flexDirection: "row" as const,
+    justifyContent: "space-between" as const,
+    alignItems: "center" as const,
+    backgroundColor: COLORS.card2,
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 8,
+  },
+  statusLabel: {
+    color: COLORS.muted,
+    fontSize: 13,
+  },
+  statusValue: {
+    color: COLORS.text,
+    fontWeight: "800" as const,
+  },
+  grid: {
+    flexDirection: "row" as const,
+    flexWrap: "wrap" as const,
+    gap: 10,
+    marginBottom: 8,
+  },
+  metricCard: {
+    width: "48%" as const,
+    backgroundColor: COLORS.card2,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  metricLabel: {
+    color: COLORS.muted,
+    fontSize: 12,
+  },
+  metricValue: {
+    color: COLORS.primary,
+    fontSize: 20,
+    fontWeight: "900" as const,
+    marginTop: 6,
+  },
+  pill: {
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 99,
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: "900" as const,
+  },
+  recommendationBox: {
+    backgroundColor: COLORS.card2,
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 12,
+  },
+  recommendationLabel: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: "900" as const,
+    marginBottom: 4,
+  },
+  recommendationText: {
+    color: COLORS.text,
+    lineHeight: 19,
+  },
+  actionMetaGrid: {
+    flexDirection: "row" as const,
+    gap: 10,
+    marginTop: 12,
+  },
+  metaBox: {
+    flex: 1,
+    backgroundColor: COLORS.card2,
+    borderRadius: 14,
+    padding: 12,
+  },
+  metaValue: {
+    color: COLORS.text,
+    fontWeight: "800" as const,
+    marginTop: 4,
+  },
+  primaryButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    flexDirection: "row" as const,
+    gap: 8,
+    marginTop: 12,
+  },
+  primaryButtonText: {
+    color: "#00111A",
+    fontWeight: "900" as const,
+  },
+  secondaryButton: {
+    flex: 1,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center" as const,
+  },
+  secondaryButtonText: {
+    color: COLORS.primary,
+    fontWeight: "900" as const,
+  },
+  smallButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 6,
+  },
+  smallButtonText: {
+    color: "#00111A",
+    fontWeight: "900" as const,
+    fontSize: 12,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  input: {
+    minHeight: 110,
+    backgroundColor: COLORS.card2,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    color: COLORS.text,
+    textAlignVertical: "top" as const,
+    lineHeight: 20,
+  },
+  aiTextBlock: {
+    backgroundColor: COLORS.card2,
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  aiText: {
+    color: COLORS.text,
+    lineHeight: 21,
+  },
+};

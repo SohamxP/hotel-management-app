@@ -1,86 +1,114 @@
 import { Request, Response } from "express";
-import * as aiService from "../services/aiService";
-import * as openAIService from "../services/openaiService";
-import { OpenAIAppError } from "../services/openaiService";
+import {
+  getAIActionCenter,
+  getHotelOperationsSnapshot,
+  getLocalHotelInsights,
+} from "../services/aiService";
+import {
+  askOpenAI,
+  generateActionPlan,
+  generateManagerBriefing,
+  getOpenAIStatus,
+  testOpenAIConnection,
+} from "../services/openaiService";
+
+function sendError(res: Response, error: any, fallbackMessage: string) {
+  console.error(fallbackMessage, error);
+
+  res.status(error?.status || 500).json({
+    success: false,
+    error: error?.message || fallbackMessage,
+  });
+}
+
+export async function getAIStatus(req: Request, res: Response) {
+  try {
+    res.json({
+      success: true,
+      ...getOpenAIStatus(),
+    });
+  } catch (error: any) {
+    sendError(res, error, "Failed to get OpenAI status");
+  }
+}
+
+export async function testAI(req: Request, res: Response) {
+  try {
+    const result = await testOpenAIConnection();
+    res.json(result);
+  } catch (error: any) {
+    sendError(res, error, "OpenAI test failed");
+  }
+}
 
 export async function getInsights(req: Request, res: Response) {
   try {
-    const insights = await aiService.getInsights();
-    res.json(insights);
-  } catch (error) {
-    console.error("AI insights error:", error);
-    res.status(500).json({ error: "Failed to generate AI insights" });
-  }
-}
-
-export async function getOpenAIStatus(req: Request, res: Response) {
-  try {
-    const status = openAIService.getOpenAIConfigStatus();
-    res.json(status);
-  } catch (error: any) {
-    res.status(500).json({
-      configured: false,
-      error: error?.message || "Failed to read OpenAI configuration",
-    });
-  }
-}
-
-export async function testOpenAI(req: Request, res: Response) {
-  try {
-    const result = await openAIService.testOpenAIConnection();
+    const result = await getLocalHotelInsights();
     res.json({
       success: true,
       ...result,
     });
   } catch (error: any) {
-    console.error("OpenAI test error:", error);
+    sendError(res, error, "Failed to generate local AI insights");
+  }
+}
 
-    const statusCode = error instanceof OpenAIAppError ? error.statusCode : 500;
-
-    res.status(statusCode).json({
-      success: false,
-      error: error?.message || "OpenAI test failed",
+export async function getActions(req: Request, res: Response) {
+  try {
+    const result = await getAIActionCenter();
+    res.json({
+      success: true,
+      ...result,
     });
+  } catch (error: any) {
+    sendError(res, error, "Failed to generate AI action center");
   }
 }
 
 export async function askAI(req: Request, res: Response) {
   try {
-    const { question } = req.body;
-
-    if (!question || typeof question !== "string") {
-      return res.status(400).json({ error: "Question is required" });
-    }
-
-    const result = await openAIService.askHotelAI({ question });
-    res.json(result);
-  } catch (error: any) {
-    console.error("OpenAI hotel assistant error:", error);
-
-    const statusCode = error instanceof OpenAIAppError ? error.statusCode : 500;
-
-    res.status(statusCode).json({
-      error: error?.message || "Failed to generate OpenAI response",
-    });
-  }
-}
-
-export async function generateBriefing(req: Request, res: Response) {
-  try {
-    const result = await openAIService.generateDailyManagerBriefing();
+    const question = String(req.body?.question || "").trim();
+    const snapshot = await getHotelOperationsSnapshot();
+    const answer = await askOpenAI(question, snapshot);
 
     res.json({
       success: true,
-      ...result,
+      answer,
     });
   } catch (error: any) {
-    console.error("OpenAI briefing error:", error);
+    sendError(res, error, "OpenAI ask failed");
+  }
+}
 
-    const statusCode = error instanceof OpenAIAppError ? error.statusCode : 500;
+export async function createManagerBriefing(req: Request, res: Response) {
+  try {
+    const snapshot = await getHotelOperationsSnapshot();
+    const briefing = await generateManagerBriefing(snapshot);
 
-    res.status(statusCode).json({
-      success: false,
-      error: error?.message || "Failed to generate manager briefing",
+    res.json({
+      success: true,
+      briefing,
+      snapshotSummary: snapshot.summary,
     });
+  } catch (error: any) {
+    sendError(res, error, "Failed to generate manager briefing");
+  }
+}
+
+export async function createActionPlan(req: Request, res: Response) {
+  try {
+    const actionCenter = await getAIActionCenter();
+    const actionPlan = await generateActionPlan(
+      actionCenter.snapshot,
+      actionCenter.actionItems
+    );
+
+    res.json({
+      success: true,
+      actionPlan,
+      actionItems: actionCenter.actionItems,
+    });
+  } catch (error: any) {
+    sendError(res, error, "Failed to generate OpenAI action plan");
   }
 }
