@@ -24,8 +24,27 @@ export default function TabsLayout() {
           ),
         }}
       />
-      
-      <Tabs.Screen name="reservations" options={{ title: "Reservations" }} />
+
+      <Tabs.Screen
+        name="reservations"
+        options={{
+          title: "Reservations",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="calendar-outline" size={size} color={color} />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="guests"
+        options={{
+          title: "Guests",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="people-outline" size={size} color={color} />
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="reports"
         options={{
