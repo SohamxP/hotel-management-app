@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import roomsRoute from "./routes/rooms";
 import reportsRoute from "./routes/reports";
 import authRoute from "./routes/auth";
+import reservationRoutes from "./routes/reservations";
 
 dotenv.config();
 
@@ -15,6 +16,7 @@ app.use(express.json());
 app.use("/api/auth", authRoute);
 app.use("/api/rooms", roomsRoute);
 app.use("/api/reports", reportsRoute);
+app.use("/api/reservations", reservationRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hotel Management API is running");
