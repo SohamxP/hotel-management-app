@@ -11,6 +11,7 @@ import serviceRoutes from "./routes/services";
 import aiRoutes from "./routes/ai";
 import qualityRoutes from "./routes/quality";
 import billingRoutes from "./routes/billing";
+import healthRoutes from "./routes/health";
 import {
   stripeCancelledPageController,
   stripeSuccessPageController,
@@ -26,6 +27,7 @@ app.use(express.json());
 app.get("/payment-success", stripeSuccessPageController);
 app.get("/payment-cancelled", stripeCancelledPageController);
 
+app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoute);
 app.use("/api/rooms", roomsRoute);
 app.use("/api/reports", reportsRoute);
