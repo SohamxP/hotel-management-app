@@ -1,14 +1,34 @@
 import { getDB } from "../db";
 
+export type BillingPaymentStatus =
+  | "checkout_created"
+  | "paid"
+  | "refunded"
+  | "cancelled";
+
 export type BillingTransactionInput = {
   reservationId: number;
   stripeSessionId: string | null;
   checkoutUrl: string | null;
   amountCents: number;
   currency: string;
-  paymentStatus: "checkout_created" | "paid" | "refunded" | "cancelled";
+  paymentStatus: BillingPaymentStatus;
   billingMode: "stripe" | "simulation";
 };
+
+async function addColumnIfMissing(
+  tableName: string,
+  columnName: string,
+  columnDefinition: string
+) {
+  const db = await getDB();
+  const columns = await db.all(`PRAGMA table_info(${tableName})`);
+  const exists = columns.some((column: any) => column.name === columnName);
+
+  if (!exists) {
+    await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+}
 
 export async function ensureBillingTable() {
   const db = await getDB();
@@ -26,9 +46,17 @@ export async function ensureBillingTable() {
       CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
       PaidAt TEXT,
       RefundedAt TEXT,
+      LastSyncedAt TEXT,
+      StripePaymentStatus TEXT,
+      StripeSessionStatus TEXT,
       FOREIGN KEY (ReservationID) REFERENCES Reservation(ReservationID)
     )
   `);
+
+  await addColumnIfMissing("BillingTransaction", "RefundedAt", "TEXT");
+  await addColumnIfMissing("BillingTransaction", "LastSyncedAt", "TEXT");
+  await addColumnIfMissing("BillingTransaction", "StripePaymentStatus", "TEXT");
+  await addColumnIfMissing("BillingTransaction", "StripeSessionStatus", "TEXT");
 }
 
 export async function findBillingOverview() {
@@ -87,7 +115,10 @@ export async function findBillingOverview() {
       lb.BillingMode AS billingMode,
       lb.CreatedAt AS billingCreatedAt,
       lb.PaidAt AS paidAt,
-      lb.RefundedAt AS refundedAt
+      lb.RefundedAt AS refundedAt,
+      lb.LastSyncedAt AS lastSyncedAt,
+      lb.StripePaymentStatus AS stripePaymentStatus,
+      lb.StripeSessionStatus AS stripeSessionStatus
     FROM Reservation r
     JOIN Guest g ON g.GuestID = r.GuestID
     JOIN Room ro ON ro.RoomNumber = r.RoomNumber
@@ -162,7 +193,10 @@ export async function findReservationBill(reservationId: number) {
       lb.BillingMode AS billingMode,
       lb.CreatedAt AS billingCreatedAt,
       lb.PaidAt AS paidAt,
-      lb.RefundedAt AS refundedAt
+      lb.RefundedAt AS refundedAt,
+      lb.LastSyncedAt AS lastSyncedAt,
+      lb.StripePaymentStatus AS stripePaymentStatus,
+      lb.StripeSessionStatus AS stripeSessionStatus
     FROM Reservation r
     JOIN Guest g ON g.GuestID = r.GuestID
     JOIN Room ro ON ro.RoomNumber = r.RoomNumber
@@ -247,12 +281,125 @@ export async function createBillingTransaction(input: BillingTransactionInput) {
       BillingMode AS billingMode,
       CreatedAt AS createdAt,
       PaidAt AS paidAt,
-      RefundedAt AS refundedAt
+      RefundedAt AS refundedAt,
+      LastSyncedAt AS lastSyncedAt,
+      StripePaymentStatus AS stripePaymentStatus,
+      StripeSessionStatus AS stripeSessionStatus
     FROM BillingTransaction
     WHERE BillingTransactionID = ?
     `,
     [result.lastID]
   );
+}
+
+export async function findBillingTransactionByStripeSessionId(stripeSessionId: string) {
+  await ensureBillingTable();
+
+  const db = await getDB();
+
+  return db.get(
+    `
+    SELECT
+      BillingTransactionID AS billingTransactionId,
+      ReservationID AS reservationId,
+      StripeSessionID AS stripeSessionId,
+      CheckoutURL AS checkoutUrl,
+      AmountCents AS amountCents,
+      Currency AS currency,
+      PaymentStatus AS paymentStatus,
+      BillingMode AS billingMode,
+      CreatedAt AS createdAt,
+      PaidAt AS paidAt,
+      RefundedAt AS refundedAt,
+      LastSyncedAt AS lastSyncedAt,
+      StripePaymentStatus AS stripePaymentStatus,
+      StripeSessionStatus AS stripeSessionStatus
+    FROM BillingTransaction
+    WHERE StripeSessionID = ?
+    ORDER BY BillingTransactionID DESC
+    LIMIT 1
+    `,
+    [stripeSessionId]
+  );
+}
+
+export async function syncBillingTransactionWithStripeSession(input: {
+  stripeSessionId: string;
+  reservationId?: number;
+  amountCents?: number | null;
+  currency?: string | null;
+  paymentStatus: BillingPaymentStatus;
+  stripePaymentStatus?: string | null;
+  stripeSessionStatus?: string | null;
+}) {
+  await ensureBillingTable();
+
+  const db = await getDB();
+
+  let transaction = await findBillingTransactionByStripeSessionId(input.stripeSessionId);
+
+  if (!transaction && input.reservationId) {
+    const bill = await findReservationBill(input.reservationId);
+
+    if (!bill) {
+      throw {
+        status: 404,
+        message: "Reservation from Stripe metadata was not found",
+      };
+    }
+
+    transaction = await createBillingTransaction({
+      reservationId: input.reservationId,
+      stripeSessionId: input.stripeSessionId,
+      checkoutUrl: null,
+      amountCents:
+        input.amountCents || Math.max(Math.round(Number(bill.grandTotal || 0) * 100), 50),
+      currency: input.currency || "usd",
+      paymentStatus: input.paymentStatus,
+      billingMode: "stripe",
+    });
+  }
+
+  if (!transaction) {
+    throw {
+      status: 404,
+      message: "No billing transaction found for this Stripe session",
+    };
+  }
+
+  await db.run(
+    `
+    UPDATE BillingTransaction
+    SET
+      PaymentStatus = ?,
+      AmountCents = COALESCE(?, AmountCents),
+      Currency = COALESCE(?, Currency),
+      StripePaymentStatus = ?,
+      StripeSessionStatus = ?,
+      LastSyncedAt = datetime('now'),
+      PaidAt = CASE
+        WHEN ? = 'paid' THEN COALESCE(PaidAt, datetime('now'))
+        ELSE PaidAt
+      END,
+      RefundedAt = CASE
+        WHEN ? = 'refunded' THEN COALESCE(RefundedAt, datetime('now'))
+        ELSE RefundedAt
+      END
+    WHERE StripeSessionID = ?
+    `,
+    [
+      input.paymentStatus,
+      input.amountCents || null,
+      input.currency || null,
+      input.stripePaymentStatus || null,
+      input.stripeSessionStatus || null,
+      input.paymentStatus,
+      input.paymentStatus,
+      input.stripeSessionId,
+    ]
+  );
+
+  return findReservationBill(transaction.reservationId || input.reservationId || 0);
 }
 
 export async function markLatestBillingPaid(reservationId: number) {
@@ -298,7 +445,7 @@ export async function markLatestBillingPaid(reservationId: number) {
     `
     UPDATE BillingTransaction
     SET PaymentStatus = 'paid',
-        PaidAt = datetime('now')
+        PaidAt = COALESCE(PaidAt, datetime('now'))
     WHERE BillingTransactionID = ?
     `,
     [latest.BillingTransactionID]
@@ -334,7 +481,7 @@ export async function markLatestBillingRefunded(reservationId: number) {
     `
     UPDATE BillingTransaction
     SET PaymentStatus = 'refunded',
-        RefundedAt = datetime('now')
+        RefundedAt = COALESCE(RefundedAt, datetime('now'))
     WHERE BillingTransactionID = ?
     `,
     [latest.BillingTransactionID]

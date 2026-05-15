@@ -48,6 +48,9 @@ type BillingReservation = {
   billingCreatedAt?: string | null;
   paidAt?: string | null;
   refundedAt?: string | null;
+  lastSyncedAt?: string | null;
+  stripePaymentStatus?: string | null;
+  stripeSessionStatus?: string | null;
 };
 
 type BillingOverview = {
@@ -55,6 +58,8 @@ type BillingOverview = {
   stripeReady: boolean;
   mode: "stripe" | "simulation";
   currency: string;
+  successUrl?: string;
+  cancelUrl?: string;
   totals: {
     reservations: number;
     activeBills: number;
@@ -200,6 +205,32 @@ export default function BillingScreen() {
     }
   };
 
+  const syncStripeStatus = async (bill: BillingReservation) => {
+    if (!bill.stripeSessionId) {
+      Alert.alert("Missing session", "This bill does not have a Stripe session ID.");
+      return;
+    }
+
+    try {
+      setWorkingReservationId(bill.reservationId);
+
+      const res = await API.post("/api/billing/sync-session", {
+        stripeSessionId: bill.stripeSessionId,
+      });
+
+      Alert.alert("Stripe Synced", res.data.message || "Stripe session synced.");
+      loadBilling();
+    } catch (error: any) {
+      console.log("Stripe sync error:", error.response?.data || error.message);
+      Alert.alert(
+        "Sync Failed",
+        error.response?.data?.error || "Could not sync Stripe session"
+      );
+    } finally {
+      setWorkingReservationId(null);
+    }
+  };
+
   const markPaid = async (reservationId: number) => {
     try {
       setWorkingReservationId(reservationId);
@@ -269,8 +300,8 @@ export default function BillingScreen() {
         <View style={styles.header}>
           <Text style={styles.screenTitle}>Billing Center</Text>
           <Text style={styles.screenSubtitle}>
-            Reservation bills, service charges, Stripe checkout sessions, and
-            demo-safe payment status updates.
+            Reservation bills, service charges, Stripe checkout sessions, redirect
+            sync, and demo-safe payment status updates.
           </Text>
         </View>
 
@@ -296,9 +327,18 @@ export default function BillingScreen() {
 
           <Text style={styles.heroText}>
             {overview?.stripeReady
-              ? "Backend Stripe key found. Checkout sessions will be created by the backend only."
+              ? "Backend Stripe key found. Stripe checkout is created by the backend only. After payment, the success page syncs the session back into SQLite."
               : "No Stripe secret key found. The app will create safe simulated checkout records."}
           </Text>
+
+          {overview?.stripeReady ? (
+            <View style={styles.urlBox}>
+              <Text style={styles.urlLabel}>Success redirect</Text>
+              <Text style={styles.urlText}>{overview.successUrl}</Text>
+              <Text style={styles.urlLabel}>Cancel redirect</Text>
+              <Text style={styles.urlText}>{overview.cancelUrl}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.metricGrid}>
@@ -372,6 +412,10 @@ export default function BillingScreen() {
             const canMarkPaid =
               status !== "paid" && status !== "refunded" && status !== "cancelled";
             const canRefund = status === "paid";
+            const canSyncStripe =
+              bill.billingMode === "stripe" &&
+              Boolean(bill.stripeSessionId) &&
+              status === "checkout_created";
 
             return (
               <View key={bill.reservationId} style={styles.billCard}>
@@ -434,6 +478,17 @@ export default function BillingScreen() {
                   </Text>
                 ) : null}
 
+                {bill.stripePaymentStatus || bill.stripeSessionStatus ? (
+                  <Text style={styles.billMuted}>
+                    Stripe status: {bill.stripePaymentStatus || "unknown"} • Session:{" "}
+                    {bill.stripeSessionStatus || "unknown"}
+                  </Text>
+                ) : null}
+
+                {bill.lastSyncedAt ? (
+                  <Text style={styles.billMuted}>Last synced: {bill.lastSyncedAt}</Text>
+                ) : null}
+
                 {status === "paid" && bill.paidAt ? (
                   <Text style={[styles.billMuted, { color: COLORS.success }]}>
                     Paid at {bill.paidAt}
@@ -467,6 +522,24 @@ export default function BillingScreen() {
                           </Text>
                         </>
                       )}
+                    </Pressable>
+                  ) : null}
+
+                  {canSyncStripe ? (
+                    <Pressable
+                      style={[
+                        styles.secondaryButton,
+                        isWorking && styles.disabledButton,
+                      ]}
+                      onPress={() => syncStripeStatus(bill)}
+                      disabled={isWorking}
+                    >
+                      <Ionicons
+                        name="sync-outline"
+                        size={18}
+                        color={COLORS.text}
+                      />
+                      <Text style={styles.secondaryButtonText}>Sync Stripe</Text>
                     </Pressable>
                   ) : null}
 
@@ -571,6 +644,26 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginTop: 12,
     lineHeight: 21,
+  },
+  urlBox: {
+    backgroundColor: COLORS.card2,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 14,
+  },
+  urlLabel: {
+    color: COLORS.primary,
+    fontWeight: "900",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  urlText: {
+    color: COLORS.muted,
+    marginTop: 4,
+    lineHeight: 18,
+    fontSize: 12,
   },
   refreshButton: {
     backgroundColor: COLORS.primary,

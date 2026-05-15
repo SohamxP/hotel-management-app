@@ -11,6 +11,10 @@ import serviceRoutes from "./routes/services";
 import aiRoutes from "./routes/ai";
 import qualityRoutes from "./routes/quality";
 import billingRoutes from "./routes/billing";
+import {
+  stripeCancelledPageController,
+  stripeSuccessPageController,
+} from "./controllers/billingController";
 
 dotenv.config();
 
@@ -18,6 +22,9 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+app.get("/payment-success", stripeSuccessPageController);
+app.get("/payment-cancelled", stripeCancelledPageController);
 
 app.use("/api/auth", authRoute);
 app.use("/api/rooms", roomsRoute);

@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import * as billingRepository from "../repositories/billingRepository";
+import { BillingPaymentStatus } from "../repositories/billingRepository";
 
 function getStripeSecretKey() {
   return process.env.STRIPE_SECRET_KEY || "";
@@ -9,20 +10,35 @@ function getCurrency() {
   return (process.env.STRIPE_CURRENCY || "usd").toLowerCase();
 }
 
+function getBackendBaseUrl() {
+  return process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 5001}`;
+}
+
 function getSuccessUrl() {
   return (
     process.env.STRIPE_SUCCESS_URL ||
-    "https://example.com/hotel-payment-success?session_id={CHECKOUT_SESSION_ID}"
+    `${getBackendBaseUrl()}/payment-success?session_id={CHECKOUT_SESSION_ID}`
   );
 }
 
 function getCancelUrl() {
-  return process.env.STRIPE_CANCEL_URL || "https://example.com/hotel-payment-cancelled";
+  return process.env.STRIPE_CANCEL_URL || `${getBackendBaseUrl()}/payment-cancelled`;
 }
 
 function isStripeReady() {
   const key = getStripeSecretKey();
   return key.startsWith("sk_test_") || key.startsWith("sk_live_");
+}
+
+function getStripeClient() {
+  if (!isStripeReady()) {
+    throw {
+      status: 400,
+      message: "Stripe secret key is not configured",
+    };
+  }
+
+  return new Stripe(getStripeSecretKey());
 }
 
 function safeNumber(value: unknown) {
@@ -40,6 +56,30 @@ function guestName(bill: any) {
 
 function canBillReservation(bill: any) {
   return !["Cancelled", "No-Show"].includes(String(bill.reservationStatus || ""));
+}
+
+function paymentStatusFromStripeSession(session: any): BillingPaymentStatus {
+  if (session.payment_status === "paid") {
+    return "paid";
+  }
+
+  if (session.status === "expired") {
+    return "cancelled";
+  }
+
+  return "checkout_created";
+}
+
+function buildSessionSummary(session: any) {
+  return {
+    id: session.id,
+    paymentStatus: session.payment_status,
+    sessionStatus: session.status,
+    amountTotal: session.amount_total,
+    currency: session.currency,
+    customerEmail: session.customer_email || session.customer_details?.email || null,
+    reservationId: session.metadata?.reservationId || session.client_reference_id || null,
+  };
 }
 
 export async function getBillingOverview() {
@@ -77,6 +117,8 @@ export async function getBillingOverview() {
     stripeReady: isStripeReady(),
     mode: isStripeReady() ? "stripe" : "simulation",
     currency: getCurrency(),
+    successUrl: getSuccessUrl(),
+    cancelUrl: getCancelUrl(),
     totals: {
       reservations: reservations.length,
       activeBills: activeBills.length,
@@ -171,13 +213,21 @@ export async function createCheckoutSession(reservationId: number) {
     };
   }
 
-  const stripe = new Stripe(getStripeSecretKey());
+  const stripe = getStripeClient();
+
+  const metadata = {
+    reservationId: String(bill.reservationId),
+    guestId: String(bill.guestId),
+    roomNumber: String(bill.roomNumber),
+    app: "hotel-management-app",
+  };
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     customer_email: bill.email || undefined,
     success_url: getSuccessUrl(),
     cancel_url: getCancelUrl(),
+    client_reference_id: String(bill.reservationId),
     line_items: [
       {
         quantity: 1,
@@ -191,11 +241,9 @@ export async function createCheckoutSession(reservationId: number) {
         },
       },
     ],
-    metadata: {
-      reservationId: String(bill.reservationId),
-      guestId: String(bill.guestId),
-      roomNumber: String(bill.roomNumber),
-      app: "hotel-management-app",
+    metadata,
+    payment_intent_data: {
+      metadata,
     },
   });
 
@@ -217,7 +265,65 @@ export async function createCheckoutSession(reservationId: number) {
     stripeSessionId: session.id,
     amount: Number((amountCents / 100).toFixed(2)),
     currency,
+    successUrl: getSuccessUrl(),
+    cancelUrl: getCancelUrl(),
     transaction,
+  };
+}
+
+export async function syncStripeCheckoutSession(stripeSessionId: string) {
+  if (!stripeSessionId) {
+    throw {
+      status: 400,
+      message: "Stripe session ID is required",
+    };
+  }
+
+  const stripe = getStripeClient();
+  const session = await stripe.checkout.sessions.retrieve(stripeSessionId);
+
+  const reservationId = Number(
+    session.metadata?.reservationId || session.client_reference_id || 0
+  );
+
+  const paymentStatus = paymentStatusFromStripeSession(session);
+
+  const bill = await billingRepository.syncBillingTransactionWithStripeSession({
+    stripeSessionId: session.id,
+    reservationId: reservationId || undefined,
+    amountCents: session.amount_total || null,
+    currency: session.currency || getCurrency(),
+    paymentStatus,
+    stripePaymentStatus: session.payment_status,
+    stripeSessionStatus: session.status,
+  });
+
+  return {
+    message:
+      paymentStatus === "paid"
+        ? "Stripe session synced. Payment is paid."
+        : "Stripe session synced. Payment is not paid yet.",
+    paymentStatus,
+    session: buildSessionSummary(session),
+    bill,
+  };
+}
+
+export async function handleStripeSuccessRedirect(stripeSessionId: string) {
+  if (!stripeSessionId) {
+    throw {
+      status: 400,
+      message: "Missing session_id in success redirect",
+    };
+  }
+
+  return syncStripeCheckoutSession(stripeSessionId);
+}
+
+export async function handleStripeCancelledRedirect() {
+  return {
+    message:
+      "Checkout was cancelled. No payment was recorded. Return to the app to create a new checkout session if needed.",
   };
 }
 
