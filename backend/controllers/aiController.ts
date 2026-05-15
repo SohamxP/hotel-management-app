@@ -3,11 +3,13 @@ import {
   getAIActionCenter,
   getHotelOperationsSnapshot,
   getLocalHotelInsights,
+  getOccupancyForecast,
   getRevenueOpportunities,
 } from "../services/aiService";
 import {
   askOpenAI,
   generateActionPlan,
+  generateForecastPlan,
   generateGuestRecoveryDrafts,
   generateManagerBriefing,
   generateRevenuePlan,
@@ -77,6 +79,18 @@ export async function getRevenue(req: Request, res: Response) {
     });
   } catch (error: any) {
     sendError(res, error, "Failed to generate revenue opportunities");
+  }
+}
+
+export async function getForecast(req: Request, res: Response) {
+  try {
+    const result = await getOccupancyForecast();
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error: any) {
+    sendError(res, error, "Failed to generate occupancy forecast");
   }
 }
 
@@ -168,5 +182,20 @@ export async function createRevenuePlan(req: Request, res: Response) {
     });
   } catch (error: any) {
     sendError(res, error, "Failed to generate OpenAI revenue plan");
+  }
+}
+
+export async function createForecastPlan(req: Request, res: Response) {
+  try {
+    const forecast = await getOccupancyForecast();
+    const forecastPlan = await generateForecastPlan(forecast);
+
+    res.json({
+      success: true,
+      forecastPlan,
+      forecastItems: forecast.forecastItems,
+    });
+  } catch (error: any) {
+    sendError(res, error, "Failed to generate OpenAI forecast plan");
   }
 }

@@ -34,6 +34,7 @@ type LocalInsight = {
 
 type ActionPriority = "High" | "Medium" | "Low";
 type RevenueImpact = "High" | "Medium" | "Low";
+type ForecastRisk = "High" | "Medium" | "Low";
 
 type ActionItem = {
   id: string;
@@ -55,6 +56,18 @@ type RevenueOpportunity = {
   target: string;
   recommendation: string;
   source: string;
+};
+
+type ForecastItem = {
+  id: string;
+  risk: ForecastRisk;
+  title: string;
+  description: string;
+  dateLabel: string;
+  metricLabel: string;
+  metricValue: string;
+  recommendation: string;
+  owner: string;
 };
 
 type ActionCenterResponse = {
@@ -86,6 +99,12 @@ type RevenueResponse = {
   opportunities: RevenueOpportunity[];
 };
 
+type ForecastResponse = {
+  success: boolean;
+  generatedAt: string;
+  forecastItems: ForecastItem[];
+};
+
 const DEFAULT_QUESTION =
   "What should the hotel manager focus on today based on the current data?";
 
@@ -96,7 +115,7 @@ function getSeverityColor(severity: InsightSeverity) {
   return COLORS.primary;
 }
 
-function getPriorityColor(priority: ActionPriority | RevenueImpact) {
+function getPriorityColor(priority: ActionPriority | RevenueImpact | ForecastRisk) {
   if (priority === "High") return COLORS.danger;
   if (priority === "Medium") return COLORS.warning;
   return COLORS.primary;
@@ -113,21 +132,25 @@ export default function AIScreen() {
     null
   );
   const [revenue, setRevenue] = useState<RevenueResponse | null>(null);
+  const [forecast, setForecast] = useState<ForecastResponse | null>(null);
 
   const [briefing, setBriefing] = useState("");
   const [actionPlan, setActionPlan] = useState("");
   const [recoveryDrafts, setRecoveryDrafts] = useState("");
   const [revenuePlan, setRevenuePlan] = useState("");
+  const [forecastPlan, setForecastPlan] = useState("");
   const [question, setQuestion] = useState(DEFAULT_QUESTION);
   const [answer, setAnswer] = useState("");
 
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [loadingActions, setLoadingActions] = useState(true);
   const [loadingRevenue, setLoadingRevenue] = useState(true);
+  const [loadingForecast, setLoadingForecast] = useState(true);
   const [loadingBriefing, setLoadingBriefing] = useState(false);
   const [loadingActionPlan, setLoadingActionPlan] = useState(false);
   const [loadingRecoveryDrafts, setLoadingRecoveryDrafts] = useState(false);
   const [loadingRevenuePlan, setLoadingRevenuePlan] = useState(false);
+  const [loadingForecastPlan, setLoadingForecastPlan] = useState(false);
   const [loadingAnswer, setLoadingAnswer] = useState(false);
   const [testingOpenAI, setTestingOpenAI] = useState(false);
 
@@ -148,6 +171,11 @@ export default function AIScreen() {
       (item) => item.impact === "High"
     ).length;
   }, [revenue]);
+
+  const highForecastCount = useMemo(() => {
+    return (forecast?.forecastItems || []).filter((item) => item.risk === "High")
+      .length;
+  }, [forecast]);
 
   const loadStatus = async () => {
     try {
@@ -192,11 +220,25 @@ export default function AIScreen() {
     }
   };
 
+  const loadForecast = async () => {
+    try {
+      setLoadingForecast(true);
+      const res = await API.get("/api/ai/forecast");
+      setForecast(res.data);
+    } catch (error: any) {
+      console.log("AI forecast error:", error.response?.data || error.message);
+      Alert.alert("Error", "Failed to load occupancy forecast");
+    } finally {
+      setLoadingForecast(false);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       loadStatus();
       loadActionCenter();
       loadRevenue();
+      loadForecast();
     }, [])
   );
 
@@ -289,6 +331,23 @@ export default function AIScreen() {
     }
   };
 
+  const generateForecastPlan = async () => {
+    try {
+      setLoadingForecastPlan(true);
+      setForecastPlan("");
+      const res = await API.post("/api/ai/forecast-plan");
+      setForecastPlan(res.data.forecastPlan || "No forecast plan returned.");
+    } catch (error: any) {
+      console.log("Forecast plan error:", error.response?.data || error.message);
+      Alert.alert(
+        "Forecast plan failed",
+        error.response?.data?.error || "Could not generate forecast plan."
+      );
+    } finally {
+      setLoadingForecastPlan(false);
+    }
+  };
+
   const askAI = async () => {
     const cleanQuestion = question.trim();
 
@@ -334,7 +393,7 @@ export default function AIScreen() {
             AI Manager
           </Text>
           <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 20 }}>
-            Local hotel insights plus OpenAI-generated manager recommendations.
+            Local insights plus OpenAI-generated manager recommendations.
           </Text>
         </View>
 
@@ -404,6 +463,79 @@ export default function AIScreen() {
             ))}
           </>
         ) : null}
+
+        {loadingForecast ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator color={COLORS.primary} />
+            <Text style={{ color: COLORS.muted, marginTop: 10 }}>
+              Loading occupancy forecast...
+            </Text>
+          </View>
+        ) : forecast ? (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <View>
+                <Text style={styles.sectionTitle}>Occupancy Forecast</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Arrival, departure, room-type, and staffing pressure
+                </Text>
+              </View>
+
+              <Pressable style={styles.smallButton} onPress={loadForecast}>
+                <Ionicons name="refresh-outline" size={16} color="#00111A" />
+                <Text style={styles.smallButtonText}>Refresh</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.grid}>
+              <MetricCard
+                label="Forecast Items"
+                value={String(forecast.forecastItems.length)}
+              />
+              <MetricCard label="High Risk" value={String(highForecastCount)} />
+            </View>
+
+            {forecast.forecastItems.map((item) => (
+              <ForecastCard key={item.id} item={item} />
+            ))}
+          </>
+        ) : null}
+
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.iconBubble}>
+              <Ionicons name="analytics-outline" size={20} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>OpenAI Forecast Plan</Text>
+              <Text style={styles.cardSubtitle}>
+                Turns forecast data into staffing and room-readiness actions
+              </Text>
+            </View>
+          </View>
+
+          <Pressable
+            style={[
+              styles.primaryButton,
+              loadingForecastPlan && styles.disabledButton,
+            ]}
+            onPress={generateForecastPlan}
+            disabled={loadingForecastPlan}
+          >
+            {loadingForecastPlan ? (
+              <ActivityIndicator color="#00111A" />
+            ) : (
+              <>
+                <Ionicons name="calendar-outline" size={18} color="#00111A" />
+                <Text style={styles.primaryButtonText}>
+                  Generate Forecast Plan
+                </Text>
+              </>
+            )}
+          </Pressable>
+
+          {forecastPlan ? <AITextBlock text={forecastPlan} /> : null}
+        </View>
 
         {loadingRevenue ? (
           <View style={styles.loadingCard}>
@@ -765,6 +897,37 @@ function RevenueCard({ item }: { item: RevenueOpportunity }) {
       <View style={styles.actionMetaGrid}>
         <Meta label="Target" value={item.target} />
         <Meta label="Source" value={item.source} />
+      </View>
+
+      <View style={styles.recommendationBox}>
+        <Text style={styles.recommendationLabel}>Recommendation</Text>
+        <Text style={styles.recommendationText}>{item.recommendation}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ForecastCard({ item }: { item: ForecastItem }) {
+  const color = getPriorityColor(item.risk);
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <View style={[styles.pill, { borderColor: color }]}>
+          <Text style={[styles.pillText, { color }]}>{item.risk} Risk</Text>
+        </View>
+        <View style={{ flex: 1 }} />
+        <Text style={{ color: COLORS.primary, fontWeight: "900" }}>
+          {item.metricValue}
+        </Text>
+      </View>
+
+      <Text style={styles.cardTitle}>{item.title}</Text>
+      <Text style={styles.bodyText}>{item.description}</Text>
+
+      <View style={styles.actionMetaGrid}>
+        <Meta label="Date" value={item.dateLabel} />
+        <Meta label={item.metricLabel} value={item.owner} />
       </View>
 
       <View style={styles.recommendationBox}>

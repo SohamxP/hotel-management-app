@@ -259,3 +259,22 @@ export async function generateRevenuePlan(revenueOpportunities: unknown) {
     { temperature: 0.3, maxTokens: 1100 }
   );
 }
+
+export async function generateForecastPlan(forecastData: unknown) {
+  return callOpenAI(
+    [
+      {
+        role: "system",
+        content:
+          "You are a hotel operations forecasting assistant. Create a practical occupancy forecast plan using reservation, room, service, and arrival/departure pressure data. Do not invent numbers. Focus on staffing, room readiness, check-ins, check-outs, and guest experience.",
+      },
+      {
+        role: "user",
+        content: `Create an occupancy forecast plan from this hotel data:\n${safeJson(
+          forecastData
+        )}\n\nUse these headings:\n1. Occupancy Outlook\n2. Arrival Pressure\n3. Departure / Housekeeping Pressure\n4. Room-Type Risks\n5. Staffing Recommendations\n6. Manager Checklist`,
+      },
+    ],
+    { temperature: 0.25, maxTokens: 1100 }
+  );
+}

@@ -3,6 +3,7 @@ import { getDB } from "../db";
 export type InsightSeverity = "critical" | "warning" | "info" | "success";
 export type ActionPriority = "High" | "Medium" | "Low";
 export type RevenueImpact = "High" | "Medium" | "Low";
+export type ForecastRisk = "High" | "Medium" | "Low";
 
 export type LocalInsight = {
   id: string;
@@ -34,6 +35,18 @@ export type RevenueOpportunity = {
   target: string;
   recommendation: string;
   source: string;
+};
+
+export type ForecastItem = {
+  id: string;
+  risk: ForecastRisk;
+  title: string;
+  description: string;
+  dateLabel: string;
+  metricLabel: string;
+  metricValue: string;
+  recommendation: string;
+  owner: string;
 };
 
 function numberValue(value: unknown) {
@@ -648,7 +661,7 @@ export async function getRevenueOpportunities() {
       LEFT JOIN Service s ON s.ReservationID = r.ReservationID
       WHERE r.ReservStatus IN ('Confirmed', 'Pending')
       GROUP BY r.ReservationID
-      HAVING serviceCount = 0
+      HAVING COUNT(s.ServiceID) = 0
       ORDER BY r.TotalPrice DESC
       LIMIT 10
     `),
@@ -781,6 +794,217 @@ export async function getRevenueOpportunities() {
       serviceRevenueByType: snapshot.serviceRevenueByType,
       membershipRevenue: snapshot.membershipRevenue,
       paymentModeSummary: snapshot.paymentModeSummary,
+    },
+  };
+}
+
+export async function getOccupancyForecast() {
+  const db = await getDB();
+  const snapshot = await getHotelOperationsSnapshot();
+
+  const [
+    arrivalPressure,
+    departurePressure,
+    roomTypeDemand,
+    activeReservationDetails,
+    openServiceByType,
+  ] = await Promise.all([
+    db.all(`
+      SELECT
+        CheckInDate,
+        COUNT(*) AS arrivalCount,
+        ROUND(SUM(TotalPrice), 2) AS arrivalRevenue,
+        SUM(CASE WHEN ReservStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingCount,
+        SUM(CASE WHEN ReservStatus = 'Confirmed' THEN 1 ELSE 0 END) AS confirmedCount
+      FROM Reservation
+      WHERE ReservStatus IN ('Confirmed', 'Pending')
+      GROUP BY CheckInDate
+      ORDER BY arrivalCount DESC, CheckInDate ASC
+      LIMIT 8
+    `),
+
+    db.all(`
+      SELECT
+        CheckOutDate,
+        COUNT(*) AS departureCount,
+        ROUND(SUM(TotalPrice), 2) AS departingRevenue
+      FROM Reservation
+      WHERE ReservStatus IN ('Confirmed', 'Pending')
+      GROUP BY CheckOutDate
+      ORDER BY departureCount DESC, CheckOutDate ASC
+      LIMIT 8
+    `),
+
+    db.all(`
+      SELECT
+        ro.RoomType,
+        COUNT(r.ReservationID) AS activeBookingCount,
+        ROUND(SUM(r.TotalPrice), 2) AS activeRevenue,
+        ROUND(AVG(julianday(r.CheckOutDate) - julianday(r.CheckInDate)), 1) AS avgStayNights,
+        SUM(CASE WHEN r.ReservStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingCount,
+        SUM(CASE WHEN r.ReservStatus = 'Confirmed' THEN 1 ELSE 0 END) AS confirmedCount,
+        SUM(CASE WHEN ro.AvailStatus = 'Available' THEN 1 ELSE 0 END) AS currentlyAvailableRooms
+      FROM Reservation r
+      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
+      WHERE r.ReservStatus IN ('Confirmed', 'Pending')
+      GROUP BY ro.RoomType
+      ORDER BY activeBookingCount DESC, activeRevenue DESC
+    `),
+
+    db.all(`
+      SELECT
+        r.ReservationID,
+        r.GuestID,
+        g.FirstName,
+        g.LastName,
+        r.RoomNumber,
+        ro.RoomType,
+        r.CheckInDate,
+        r.CheckOutDate,
+        ROUND(julianday(r.CheckOutDate) - julianday(r.CheckInDate), 1) AS StayNights,
+        r.TotalPrice,
+        r.ReservStatus,
+        r.SpecialRequest,
+        m.MembershipLevel,
+        m.PurposeOfVisit
+      FROM Reservation r
+      JOIN Guest g ON g.GuestID = r.GuestID
+      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
+      LEFT JOIN Membership m ON m.GuestID = g.GuestID
+      WHERE r.ReservStatus IN ('Confirmed', 'Pending')
+      ORDER BY r.CheckInDate ASC, r.TotalPrice DESC
+      LIMIT 12
+    `),
+
+    db.all(`
+      SELECT
+        ServiceType,
+        RequestStatus,
+        COUNT(*) AS count,
+        ROUND(SUM(ServicePrice), 2) AS totalValue
+      FROM Service
+      WHERE RequestStatus IN ('Pending', 'In Progress')
+      GROUP BY ServiceType, RequestStatus
+      ORDER BY count DESC
+    `),
+  ]);
+
+  const forecastItems: ForecastItem[] = [];
+
+  const busiestArrivalDay = arrivalPressure[0];
+
+  if (busiestArrivalDay) {
+    const arrivalCount = numberValue(busiestArrivalDay.arrivalCount);
+
+    forecastItems.push({
+      id: "F-001",
+      risk: arrivalCount >= 4 ? "High" : arrivalCount >= 2 ? "Medium" : "Low",
+      title: "Busiest arrival day",
+      description: `${arrivalCount} active reservation(s) are scheduled to check in on ${busiestArrivalDay.CheckInDate}.`,
+      dateLabel: busiestArrivalDay.CheckInDate,
+      metricLabel: "Arrivals",
+      metricValue: String(arrivalCount),
+      recommendation:
+        "Pre-assign rooms, verify payment details, and prepare front desk staffing before arrival rush.",
+      owner: "Front Desk",
+    });
+  }
+
+  const busiestDepartureDay = departurePressure[0];
+
+  if (busiestDepartureDay) {
+    const departureCount = numberValue(busiestDepartureDay.departureCount);
+
+    forecastItems.push({
+      id: "F-002",
+      risk: departureCount >= 4 ? "High" : departureCount >= 2 ? "Medium" : "Low",
+      title: "Housekeeping turnover pressure",
+      description: `${departureCount} room(s) are expected to check out on ${busiestDepartureDay.CheckOutDate}.`,
+      dateLabel: busiestDepartureDay.CheckOutDate,
+      metricLabel: "Departures",
+      metricValue: String(departureCount),
+      recommendation:
+        "Schedule housekeeping coverage early and prioritize rooms needed for same-day arrivals.",
+      owner: "Housekeeping",
+    });
+  }
+
+  const highestDemandRoomType = roomTypeDemand[0];
+
+  if (highestDemandRoomType) {
+    const demandCount = numberValue(highestDemandRoomType.activeBookingCount);
+    const pendingCount = numberValue(highestDemandRoomType.pendingCount);
+
+    forecastItems.push({
+      id: "F-003",
+      risk: demandCount >= 4 ? "High" : demandCount >= 2 ? "Medium" : "Low",
+      title: "Room-type demand pressure",
+      description: `${highestDemandRoomType.RoomType} rooms have the highest active booking demand with ${demandCount} reservation(s).`,
+      dateLabel: "Active bookings",
+      metricLabel: "Pending",
+      metricValue: String(pendingCount),
+      recommendation:
+        "Avoid unnecessary discounts on this room type and confirm pending reservations quickly.",
+      owner: "Manager",
+    });
+  }
+
+  if (snapshot.summary.pendingReservations > 0) {
+    forecastItems.push({
+      id: "F-004",
+      risk: snapshot.summary.pendingReservations >= 3 ? "High" : "Medium",
+      title: "Pending reservation risk",
+      description: `${snapshot.summary.pendingReservations} pending reservation(s) may affect occupancy planning.`,
+      dateLabel: "Current",
+      metricLabel: "Pending",
+      metricValue: String(snapshot.summary.pendingReservations),
+      recommendation:
+        "Contact pending guests to confirm arrival, payment mode, and special requests.",
+      owner: "Front Desk",
+    });
+  }
+
+  if (snapshot.summary.openServiceCount > 0) {
+    forecastItems.push({
+      id: "F-005",
+      risk: snapshot.summary.openServiceCount >= 5 ? "High" : "Medium",
+      title: "Service queue may affect arrival experience",
+      description: `${snapshot.summary.openServiceCount} open service request(s) could slow down guest experience during high arrival periods.`,
+      dateLabel: "Current",
+      metricLabel: "Open services",
+      metricValue: String(snapshot.summary.openServiceCount),
+      recommendation:
+        "Close in-progress service items before the busiest arrival window.",
+      owner: "Service Team",
+    });
+  }
+
+  if (snapshot.summary.blockedRoomCount > 0) {
+    forecastItems.push({
+      id: "F-006",
+      risk: "High",
+      title: "Blocked rooms reduce forecast flexibility",
+      description: `${snapshot.summary.blockedRoomCount} room(s) are blocked and cannot be used to absorb arrival spikes.`,
+      dateLabel: "Current",
+      metricLabel: "Blocked",
+      metricValue: String(snapshot.summary.blockedRoomCount),
+      recommendation:
+        "Review blocked rooms with maintenance and return fixed rooms to available inventory.",
+      owner: "Maintenance",
+    });
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    summary: snapshot.summary,
+    forecastItems,
+    data: {
+      arrivalPressure,
+      departurePressure,
+      roomTypeDemand,
+      activeReservationDetails,
+      openServiceByType,
+      roomTypePerformance: snapshot.roomTypePerformance,
     },
   };
 }
