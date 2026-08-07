@@ -1,5 +1,5 @@
 import express from "express";
-import { verifyToken } from "../middleware/auth";
+import { verifyToken, authorize } from "../middleware/auth";
 import {
   generateGuestRecoveryDraft,
   generateQualityPlan,
@@ -8,8 +8,25 @@ import {
 
 const router = express.Router();
 
-router.get("/overview", verifyToken, getQualityOverview);
-router.post("/plan", verifyToken, generateQualityPlan);
-router.post("/guest-recovery-draft", verifyToken, generateGuestRecoveryDraft);
+router.get(
+  "/overview",
+  verifyToken,
+  authorize("Manager"),
+  getQualityOverview
+);
+
+router.post(
+  "/plan",
+  verifyToken,
+  authorize("Manager"),
+  generateQualityPlan
+);
+
+router.post(
+  "/guest-recovery-draft",
+  verifyToken,
+  authorize("Manager"),
+  generateGuestRecoveryDraft
+);
 
 export default router;

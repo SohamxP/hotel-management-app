@@ -1,26 +1,22 @@
 import express from "express";
-import { DEMO_TOKEN } from "../middleware/auth";
+import * as authService from "../services/authService";
 
 const router = express.Router();
 
-router.post("/login", (req, res) => {
-  const { username, password } = req.body;
+router.post("/login", async (req, res) => {
+  try {
+    const result = await authService.login(req.body);
 
-  if (username === "admin" && password === "admin123") {
-    return res.json({
-      success: true,
-      token: DEMO_TOKEN,
-      user: {
-        username: "admin",
-        role: "admin",
-      },
-    });
+    return res.json(result);
+  } catch (error: any) {
+    return res
+      .status(error.status || 500)
+      .json({
+        success: false,
+        message:
+          error.message || "Internal server error",
+      });
   }
-
-  return res.status(401).json({
-    success: false,
-    message: "Invalid username or password",
-  });
 });
 
 export default router;

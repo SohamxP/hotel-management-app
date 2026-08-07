@@ -1,5 +1,7 @@
 import express from "express";
-import { verifyToken } from "../middleware/auth";
+import { verifyToken, authorize } from "../middleware/auth";
+import { validateBody } from "../middleware/validate";
+import { createGuestSchema } from "../schemas/guestSchema";
 import {
   createGuest,
   getGuestById,
@@ -9,9 +11,32 @@ import {
 
 const router = express.Router();
 
-router.get("/", verifyToken, getGuests);
-router.post("/", verifyToken, createGuest);
-router.get("/:id/reservations", verifyToken, getGuestReservations);
-router.get("/:id", verifyToken, getGuestById);
+router.get(
+  "/",
+  verifyToken,
+  authorize("Manager", "Front Desk"),
+  getGuests
+);
+
+router.post(
+  "/",
+  verifyToken,
+  authorize("Manager", "Front Desk"),
+  createGuest
+);
+
+router.get(
+  "/:id/reservations",
+  verifyToken,
+  authorize("Manager", "Front Desk"),
+  getGuestReservations
+);
+
+router.get(
+  "/:id",
+  verifyToken,
+  authorize("Manager", "Front Desk"),
+  getGuestById
+);
 
 export default router;

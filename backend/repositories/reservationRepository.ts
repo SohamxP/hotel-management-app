@@ -1,3 +1,4 @@
+import { Database } from "sqlite";
 import { getDB } from "../db";
 
 type CreateReservationData = {
@@ -28,30 +29,70 @@ export async function findAllReservations() {
   `);
 }
 
-export async function findGuestById(guestId: number) {
-  const db = await getDB();
+export async function findGuestById(
+  guestId: number,
+  db?: Database
+) {
+  const connection = db ?? (await getDB());
 
-  return db.get("SELECT * FROM Guest WHERE GuestID = ?", [guestId]);
+  return connection.get(
+    "SELECT * FROM Guest WHERE GuestID = ?",
+    [guestId]
+  );
 }
 
-export async function findRoomByNumber(roomNumber: number) {
-  const db = await getDB();
+export async function findRoomByNumber(
+  roomNumber: number,
+  db?: Database
+) {
+  const connection = db ?? (await getDB());
 
-  return db.get("SELECT * FROM Room WHERE RoomNumber = ?", [roomNumber]);
+  return connection.get(
+    "SELECT * FROM Room WHERE RoomNumber = ?",
+    [roomNumber]
+  );
 }
 
-export async function findReservationById(reservationId: number) {
-  const db = await getDB();
+export async function findConflictingReservation(
+  roomNumber: number,
+  checkInDate: string,
+  checkOutDate: string,
+  db?: Database
+) {
+  const connection = db ?? (await getDB());
 
-  return db.get("SELECT * FROM Reservation WHERE ReservationID = ?", [
-    reservationId,
-  ]);
+  return connection.get(
+    `
+    SELECT *
+    FROM Reservation
+    WHERE RoomNumber = ?
+      AND ReservStatus IN ('Confirmed', 'Pending')
+      AND CheckInDate < ?
+      AND CheckOutDate > ?
+    LIMIT 1
+    `,
+    [roomNumber, checkOutDate, checkInDate]
+  );
 }
 
-export async function createReservation(data: CreateReservationData) {
+export async function findReservationById(
+  reservationId: number
+) {
   const db = await getDB();
 
-  return db.run(
+  return db.get(
+    "SELECT * FROM Reservation WHERE ReservationID = ?",
+    [reservationId]
+  );
+}
+
+export async function createReservation(
+  data: CreateReservationData,
+  db?: Database
+) {
+  const connection = db ?? (await getDB());
+
+  return connection.run(
     `
     INSERT INTO Reservation (
       ReservationID,
@@ -84,11 +125,12 @@ export async function createReservation(data: CreateReservationData) {
 
 export async function addReservationGuest(
   reservationId: number,
-  guestId: number
+  guestId: number,
+  db?: Database
 ) {
-  const db = await getDB();
+  const connection = db ?? (await getDB());
 
-  return db.run(
+  return connection.run(
     `
     INSERT INTO ReservationGuest (
       ReservationID,
@@ -100,7 +142,9 @@ export async function addReservationGuest(
   );
 }
 
-export async function cancelReservation(reservationId: number) {
+export async function cancelReservation(
+  reservationId: number
+) {
   const db = await getDB();
 
   return db.run(
@@ -113,7 +157,10 @@ export async function cancelReservation(reservationId: number) {
   );
 }
 
-export async function updateRoomStatus(roomNumber: number, status: string) {
+export async function updateRoomStatus(
+  roomNumber: number,
+  status: string
+) {
   const db = await getDB();
 
   return db.run(

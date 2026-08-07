@@ -1,9 +1,6 @@
 PRAGMA foreign_keys = OFF;
 
 DROP TRIGGER IF EXISTS trg_max_guests;
-DROP TRIGGER IF EXISTS trg_room_on_reserve;
-DROP TRIGGER IF EXISTS trg_room_on_update;
-DROP TRIGGER IF EXISTS trg_room_on_update_confirmed;
 DROP TRIGGER IF EXISTS trg_emp_one_service;
 DROP TRIGGER IF EXISTS trg_emp_one_service_update;
 DROP TRIGGER IF EXISTS trg_feedback_date;
@@ -74,6 +71,16 @@ CREATE TABLE Employee (
   Salary REAL NOT NULL CHECK (Salary > 0),
   Position TEXT NOT NULL,
   HoursWorked REAL DEFAULT 0
+);
+
+CREATE TABLE UserAccount (
+  UserID INTEGER PRIMARY KEY AUTOINCREMENT,
+  EmployeeID INTEGER NOT NULL UNIQUE,
+  Username TEXT NOT NULL UNIQUE,
+  PasswordHash TEXT NOT NULL,
+  IsActive INTEGER NOT NULL DEFAULT 1 CHECK (IsActive IN (0, 1)),
+  CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (EmployeeID) REFERENCES Employee(EmployeeID)
 );
 
 CREATE TABLE Reservation (

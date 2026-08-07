@@ -1,10 +1,10 @@
 import express from "express";
 import { getDB } from "../db";
-import { verifyToken } from "../middleware/auth";
+import { verifyToken, authorize } from "../middleware/auth";
 
 const router = express.Router();
 
-router.get("/room-type-summary", verifyToken, async (req, res) => {
+router.get("/room-type-summary", verifyToken, authorize("Manager"), async (req, res) => {
   try {
     const db = await getDB();
 

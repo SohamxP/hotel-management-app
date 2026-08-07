@@ -16,6 +16,7 @@ import {
   stripeCancelledPageController,
   stripeSuccessPageController,
 } from "./controllers/billingController";
+import { errorHandler } from "./middleware/errorHandler";
 
 dotenv.config();
 
@@ -37,6 +38,7 @@ app.use("/api/services", serviceRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/quality", qualityRoutes);
 app.use("/api/billing", billingRoutes);
+app.use(errorHandler);
 
 app.get("/", (req, res) => {
   res.send("Hotel Management API is running");
