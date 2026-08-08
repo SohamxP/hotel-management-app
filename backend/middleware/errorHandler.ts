@@ -10,9 +10,11 @@ export function errorHandler(
   res: Response,
   next: NextFunction
 ) {
-  console.error(error);
-
   const status = error.status || 500;
+
+  if (status >= 500) {
+    console.error(error);
+  }
 
   res.status(status).json({
     success: false,

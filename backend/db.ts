@@ -3,7 +3,9 @@ import { open } from "sqlite";
 
 export async function getDB() {
   return open({
-    filename: "./database/hotel.db",
+    filename:
+      process.env.DB_FILE ||
+      "./database/hotel.db",
     driver: sqlite3.Database,
   });
 }
