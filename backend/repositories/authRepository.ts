@@ -1,28 +1,27 @@
-import { getDB } from "../db";
+import { prisma } from "../prismaClient";
 
 export async function findUserByUsername(username: string) {
-  const db = await getDB();
+  const user = await prisma.userAccount.findUnique({
+    where: {
+      username,
+    },
+    include: {
+      employee: true,
+    },
+  });
 
-  try {
-    return await db.get(
-      `
-      SELECT
-        ua.UserID,
-        ua.EmployeeID,
-        ua.Username,
-        ua.PasswordHash,
-        ua.IsActive,
-        e.FirstName,
-        e.LastName,
-        e.Position
-      FROM UserAccount ua
-      JOIN Employee e
-        ON e.EmployeeID = ua.EmployeeID
-      WHERE ua.Username = ?
-      `,
-      [username]
-    );
-  } finally {
-    await db.close();
+  if (!user) {
+    return undefined;
   }
+
+  return {
+    UserID: user.userId,
+    EmployeeID: user.employeeId,
+    Username: user.username,
+    PasswordHash: user.passwordHash,
+    IsActive: user.isActive ? 1 : 0,
+    FirstName: user.employee.firstName,
+    LastName: user.employee.lastName,
+    Position: user.employee.position,
+  };
 }
