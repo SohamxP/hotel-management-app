@@ -1,5 +1,8 @@
 import { prisma } from "../prismaClient";
-import { RoomAvailability } from "../generated/prisma/client";
+import {
+  RoomAvailability,
+  ReservationStatus,
+} from "../generated/prisma/client";
 
 function toLegacyAvailability(status: RoomAvailability) {
   switch (status) {
@@ -42,6 +45,85 @@ export async function findAllRooms() {
     IsSmoking: room.isSmoking,
     BedCount: room.bedCount,
     BuildingNumber: room.buildingNumber,
+    HasWifi: room.hasWifi,
+    HasTv: room.hasTv,
+  }));
+}
+
+export async function findAvailableRooms(
+  checkInDate: string,
+  checkOutDate: string
+) {
+  const conflictingReservations =
+    await prisma.reservation.findMany({
+      where: {
+        reservStatus: {
+          in: [
+            ReservationStatus.CONFIRMED,
+            ReservationStatus.PENDING,
+          ],
+        },
+
+        checkInDate: {
+          lt: checkOutDate,
+        },
+
+        checkOutDate: {
+          gt: checkInDate,
+        },
+      },
+
+      select: {
+        roomNumber: true,
+      },
+    });
+
+  const conflictingRoomNumbers = [
+    ...new Set(
+      conflictingReservations.map(
+        (reservation) =>
+          reservation.roomNumber
+      )
+    ),
+  ];
+
+  const rooms =
+    await prisma.room.findMany({
+      where: {
+        availStatus: {
+          not: RoomAvailability.BLOCKED,
+        },
+
+        ...(conflictingRoomNumbers.length >
+        0
+          ? {
+              roomNumber: {
+                notIn:
+                  conflictingRoomNumbers,
+              },
+            }
+          : {}),
+      },
+
+      orderBy: {
+        roomNumber: "asc",
+      },
+    });
+
+  return rooms.map((room) => ({
+    RoomNumber: room.roomNumber,
+    RoomType: room.roomType,
+    RatePerNight: room.ratePerNight,
+    AvailStatus:
+      toLegacyAvailability(
+        room.availStatus
+      ),
+    MaxOccupancy: room.maxOccupancy,
+    HasBalcony: room.hasBalcony,
+    IsSmoking: room.isSmoking,
+    BedCount: room.bedCount,
+    BuildingNumber:
+      room.buildingNumber,
     HasWifi: room.hasWifi,
     HasTv: room.hasTv,
   }));
