@@ -1,197 +1,226 @@
 # Hotel Management Platform
 
-A full-stack hotel operations platform built with React Native, Expo, TypeScript, Express, Prisma, PostgreSQL, Stripe, and OpenAI-powered operational tools.
+A production-style full-stack hotel operations platform built with **React Native, Expo, TypeScript, Express, Prisma, PostgreSQL, Stripe, Docker, and GitHub Actions**.
 
-The project models real hotel workflows including room inventory, reservations, guest management, services, billing, reporting, role-based access control, and manager-facing operational insights.
+The application supports real hotel workflows including reservations, date-based room availability, guest management, services, billing, reporting, role-based access control, operational analytics, and AI-assisted management tools.
 
-The backend is deployed on Render and uses a hosted PostgreSQL database on Supabase. The project also includes Docker-based local development and automated CI with GitHub Actions.
-
----
-
-## Tech Stack
-
-### Frontend
-
-* React Native
-* Expo
-* Expo Router
-* TypeScript
-* Axios
-* Expo SecureStore
-
-### Backend
-
-* Node.js
-* Express
-* TypeScript
-* Prisma ORM
-* JWT
-* bcrypt
-* Zod
-* Stripe
-* OpenAI API
-
-### Database
-
-* PostgreSQL
-* Supabase PostgreSQL for deployed data
-* Prisma migrations
-* Prisma seed workflow
-
-### DevOps
-
-* Docker
-* Docker Compose
-* GitHub Actions
-* Render
-* Supabase
-
-### Testing
-
-* Vitest
-* Supertest
-* PostgreSQL-backed integration and repository tests
-* TypeScript type checking
-* Expo lint
+The backend is deployed on **Render**, production data is stored in **Supabase PostgreSQL**, and Stripe Checkout is integrated with a deployed, signature-verified webhook flow.
 
 ---
 
-## Architecture
+## Highlights
 
-React Native / Expo
-↓
-HTTPS + JWT
-↓
-Express + TypeScript API
-↓
-Authentication / RBAC / Zod Validation
-↓
-Services
-↓
-Repositories
-↓
-Prisma ORM
-↓
-PostgreSQL
-↓
-Supabase
-
-Production flow:
-
-Frontend
-↓
-Render Web Service
-↓
-Express API
-↓
-Prisma
-↓
-Supabase PostgreSQL
+- Full-stack React Native + Express application
+- JWT authentication with persistent mobile sessions
+- Manager / Front Desk role-based access control
+- PostgreSQL + Prisma ORM
+- Correct reservation overlap prevention
+- Date-aware room availability
+- Transaction-safe reservation creation
+- Stripe Checkout integration
+- Signature-verified Stripe webhooks
+- Billing and payment status synchronization
+- Dockerized local development
+- Automated backend testing with Vitest + Supertest
+- GitHub Actions CI
+- Render + Supabase production deployment
+- AI-assisted hotel operations and quality analysis
 
 ---
 
-## Core Features
+## Production Architecture
 
-### Authentication
+```mermaid
+flowchart TD
+    A[React Native / Expo Client]
+    B[HTTPS + JWT]
+    C[Render - Express / TypeScript API]
+    D[Authentication / RBAC / Zod]
+    E[Service Layer]
+    F[Repository Layer]
+    G[Prisma ORM]
+    H[Supabase PostgreSQL]
+    I[Stripe Checkout]
+    J[Stripe Webhooks]
+    K[OpenAI API]
 
-The application uses real JWT-based authentication instead of a frontend demo token.
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+
+    E --> I
+    I --> J
+    J --> C
+
+    E --> K
+```
+
+### Deployed Backend
+
+`https://hotel-management-app-se81.onrender.com`
+
+Health check:
+
+`GET /api/health`
+
+---
+
+# Tech Stack
+
+## Frontend
+
+- React Native
+- Expo
+- Expo Router
+- TypeScript
+- Axios
+- Expo SecureStore
+
+## Backend
+
+- Node.js
+- Express
+- TypeScript
+- Prisma ORM
+- JWT
+- bcrypt
+- Zod
+- Stripe
+- OpenAI API
+
+## Database
+
+- PostgreSQL
+- Supabase PostgreSQL
+- Prisma migrations
+- Prisma seed workflow
+
+## Testing
+
+- Vitest
+- Supertest
+- PostgreSQL-backed integration tests
+- TypeScript type checking
+- Expo lint
+
+## DevOps
+
+- Docker
+- Docker Compose
+- GitHub Actions
+- Render
+- Supabase
+
+---
+
+# Core Features
+
+## Authentication
+
+The application uses backend-issued JWT authentication rather than frontend-only demo authentication.
 
 Features include:
 
-* Username and password login
-* bcrypt password hashing
-* JWT token generation and verification
-* Persistent mobile sessions using Expo SecureStore
-* Automatic token attachment to API requests
-* Automatic session cleanup after unauthorized responses
-* Protected backend routes
+- username/password login
+- bcrypt password hashing
+- JWT generation and verification
+- protected API routes
+- persistent mobile sessions with Expo SecureStore
+- automatic authentication headers
+- session cleanup after unauthorized responses
 
-Two hotel roles are currently supported:
+Two application roles are supported:
 
-* Manager
-* Front Desk
+- **Manager**
+- **Front Desk**
 
 ---
 
 ## Role-Based Access Control
 
-Backend routes and frontend navigation both enforce role-based permissions.
+Permissions are enforced both in the backend and frontend.
 
 ### Manager
 
 Managers can access:
 
-* Rooms
-* Reservations
-* Guests
-* Services
-* Billing
-* Reports
-* AI Operations
-* Quality Analysis
-* System Status
+- Rooms
+- Reservations
+- Guests
+- Services
+- Billing
+- Reports
+- AI Operations
+- Quality Analysis
+- System Status
 
 ### Front Desk
 
 Front Desk users can access:
 
-* Rooms
-* Reservations
-* Guests
-* Services
-* Billing
+- Rooms
+- Reservations
+- Guests
+- Services
+- Billing
 
-Manager-only screens are hidden from Front Desk navigation and protected against direct route access.
+Manager-only routes are protected by backend authorization middleware and hidden from Front Desk navigation.
 
 ---
 
-## Rooms
+## Room Management
 
-The Rooms module provides:
+The room module supports:
 
-* Hotel room inventory
-* Room number and room type
-* Nightly rate
-* Maximum occupancy
-* Wi-Fi and TV information
-* Building information
-* Balcony and smoking information
-* Operational room status
-* Search by room number or type
-* Room-status filtering
-* Loading, retry, and empty states
+- hotel room inventory
+- room number and room type
+- nightly pricing
+- occupancy limits
+- amenities
+- building information
+- room search
+- room filtering
+- operational room status
 
-Operational room statuses include:
+Operational statuses include:
 
-* Available
-* Reserved
-* Occupied
-* Blocked
+- Available
+- Reserved
+- Occupied
+- Blocked
 
-Reservation availability is handled separately using requested stay dates.
+Operational room status is intentionally separated from future reservation availability.
 
 ---
 
 ## Date-Based Room Availability
 
-The backend exposes date-aware room availability rather than treating every future reservation as a permanent room-status change.
+Room availability is calculated using requested stay dates.
 
-Example endpoint:
+Example:
 
+```http
 GET /api/rooms/available?checkIn=2026-09-10&checkOut=2026-09-13
+```
 
-A room is excluded when:
+A room is unavailable when:
 
-* the room is blocked
-* a Confirmed or Pending reservation overlaps the requested dates
+1. the room is operationally blocked, or
+2. a Confirmed or Pending reservation overlaps the requested interval
 
 The overlap rule is:
 
+```text
 existingCheckIn < requestedCheckOut
 AND
 existingCheckOut > requestedCheckIn
+```
 
-This allows valid back-to-back stays while preventing double booking.
+This prevents double booking while still allowing valid back-to-back reservations.
 
 ---
 
@@ -199,574 +228,655 @@ This allows valid back-to-back stays while preventing double booking.
 
 Reservation workflows include:
 
-* Create reservation
-* Select an existing guest
-* Create a new guest before reservation
-* Choose check-in and check-out dates
-* Validate reservation dates
-* Check room availability before submission
-* Prevent overlapping reservations
-* Prevent reservations for blocked rooms
-* Cancel reservations
-* Track reservation status
-* Store payment mode and special requests
+- create reservations
+- select existing guests
+- create guests before reservation
+- validate check-in/check-out dates
+- query date-based room availability
+- prevent overlapping bookings
+- reject blocked rooms
+- cancel reservations
+- track reservation status
+- store payment modes
+- store special requests
 
-Reservation creation uses a database transaction so partial reservation records are rolled back if the complete operation cannot be completed.
-
----
-
-## Guests
-
-Guest management includes:
-
-* Create guests
-* View guest profiles
-* Contact information
-* Membership information
-* Preferred room type
-* Payment information
-* Reservation history
-* Guest spending summary
-
-Guest creation supports related membership and payment records through the backend data layer.
+Reservation creation runs inside a **database transaction**, preventing partial records if the workflow fails.
 
 ---
 
-## Services
+## Guest Management
 
-The application models hotel service workflows including:
+Guest functionality includes:
 
-* Room Service
-* Spa Service
-* Shuttle Service
+- guest creation
+- guest profiles
+- contact information
+- memberships
+- preferred room type
+- payment information
+- reservation history
+- guest spending summaries
 
-Service functionality includes:
-
-* Service creation
-* Reservation association
-* Assigned employees
-* Service pricing
-* Service status tracking
-* Service-specific details
+Related guest data is handled through the backend service/repository architecture.
 
 ---
 
-## Billing and Stripe
+## Hotel Services
 
-The billing module combines room charges and service charges into reservation billing summaries.
+The platform models:
+
+- Room Service
+- Spa Service
+- Shuttle Service
+
+Service records support:
+
+- reservation association
+- employee assignment
+- service pricing
+- status tracking
+- service-specific details
+
+---
+
+# Billing and Stripe
+
+The billing system calculates reservation charges from room costs and associated hotel services.
 
 Features include:
 
-* Reservation billing overview
-* Room charges
-* Service charges
-* Grand total calculation
-* Billing transaction records
-* Stripe Checkout session creation
-* Stripe session synchronization
-* Payment status tracking
-* Refund support
-* Simulation mode for development and testing
+- reservation billing summaries
+- room charges
+- service charges
+- grand total calculation
+- billing transaction persistence
+- Stripe Checkout session creation
+- payment status synchronization
+- payment completion tracking
+- Manager-controlled refund workflow
+- safe simulation mode when Stripe is unavailable
 
-Stripe secret keys remain on the backend and are never exposed to the React Native application.
+Stripe credentials are stored only on the backend.
 
-Webhook infrastructure is included for Stripe payment events.
+## Stripe Checkout Flow
+
+```text
+Mobile App
+   ↓
+POST /api/billing/checkout
+   ↓
+Express Backend
+   ↓
+Stripe Checkout Session
+   ↓
+Stripe Hosted Checkout
+   ↓
+Payment Completed
+   ↓
+checkout.session.completed
+   ↓
+Signature-Verified Webhook
+   ↓
+Billing Transaction Updated
+   ↓
+PostgreSQL
+```
+
+## Webhook Verification
+
+The deployed backend exposes:
+
+```http
+POST /api/webhooks/stripe
+```
+
+The endpoint:
+
+- reads Stripe's raw request body
+- requires the `stripe-signature` header
+- verifies events using `STRIPE_WEBHOOK_SECRET`
+- rejects unsigned or invalid events
+- processes `checkout.session.completed`
+- processes `checkout.session.expired`
+- synchronizes payment status into PostgreSQL
+
+The deployed integration has been verified end-to-end using Stripe test mode:
+
+```text
+Checkout Session Created
+→ Test Payment Completed
+→ Stripe Event Generated
+→ Webhook Delivered
+→ HTTP 200
+→ Billing Record Updated to Paid
+```
 
 ---
 
-## Reports
+# Reports
 
-Manager-only reporting currently includes room-type operational summaries such as:
+Manager-only reports currently include room-type operational summaries such as:
 
-* Number of rooms by type
-* Average nightly rate by room type
+- room count by type
+- average nightly rate by room type
 
-The report screen includes loading, error, and empty states.
-
----
-
-## AI Operations
-
-The platform includes both deterministic operational analysis and OpenAI-powered manager tools.
-
-### Local Operational Insights
-
-The backend analyzes hotel data to identify:
-
-* Room availability pressure
-* Blocked room issues
-* Reservation activity
-* Service queue pressure
-* Service revenue
-* Low guest feedback
-* High-value guests
-* Room-type demand
-* Operational risks
-
-### AI Action Center
-
-Manager-facing AI tools include:
-
-* Operational action items
-* Revenue opportunities
-* Occupancy forecasting
-* Manager recommendations
-* Hotel-data-aware questions
-
-### OpenAI Tools
-
-When an OpenAI API key is configured, managers can use generative AI features based on hotel operational context.
+The interface includes loading, error, retry, and empty states.
 
 ---
 
-## Quality and Guest Satisfaction
+# AI Operations
 
-The Quality module analyzes feedback and operational data.
+The platform includes deterministic analytics alongside optional OpenAI-powered management tools.
+
+## Operational Insights
+
+The backend can analyze:
+
+- room availability pressure
+- blocked-room issues
+- reservation activity
+- service workload
+- service revenue
+- poor guest feedback
+- high-value guests
+- room-type demand
+- operational risks
+
+## AI Action Center
+
+Manager tools include:
+
+- operational action items
+- revenue opportunities
+- occupancy-related insights
+- manager recommendations
+- hotel-data-aware questions
+
+When an OpenAI API key is configured, the backend can generate contextual recommendations based on current hotel data.
+
+---
+
+# Quality Analysis
+
+The Manager-only Quality module analyzes guest feedback and operational data.
 
 It includes:
 
-* Overall feedback metrics
-* Low-rating detection
-* Room-type quality analysis
-* Service quality analysis
-* Complaint pattern detection
-* Guest recovery opportunities
-* Quality risk classification
-
-This screen is restricted to Manager users.
+- overall feedback metrics
+- low-rating detection
+- room-type quality analysis
+- service quality analysis
+- complaint pattern detection
+- guest recovery opportunities
+- quality risk classification
 
 ---
 
-## System Health
+# Database Architecture
 
-The backend exposes:
+The project was originally built using SQLite and later migrated to a production-style PostgreSQL architecture.
 
-GET /api/health
+Current flow:
 
-The health endpoint verifies core backend readiness, including PostgreSQL connectivity.
-
-The frontend also contains a System Status screen for checking application configuration and API connectivity.
-
----
-
-## Database
-
-The project originally used SQLite but was migrated to PostgreSQL and Prisma.
-
-Current architecture:
-
-Application
-↓
+```text
+Express
+   ↓
+Service Layer
+   ↓
+Repository Layer
+   ↓
 Prisma ORM
-↓
+   ↓
 PostgreSQL
+```
 
 Major models include:
 
-* Employee
-* UserAccount
-* Guest
-* Membership
-* PaymentInfo
-* Room
-* Reservation
-* ReservationGuest
-* Service
-* RoomService
-* SpaService
-* ShuttleService
-* Feedback
-* BillingTransaction
+- Employee
+- UserAccount
+- Guest
+- Membership
+- PaymentInfo
+- Room
+- Reservation
+- ReservationGuest
+- Service
+- RoomService
+- SpaService
+- ShuttleService
+- Feedback
+- BillingTransaction
 
-Prisma handles:
+Prisma is used for:
 
-* Schema definition
-* Database access
-* Relationships
-* Migrations
-* Development seeding
+- relational schema definition
+- database queries
+- migrations
+- relationships
+- transactions
+- repeatable seeding
 
 ---
 
-## Database Seeding
+# Database Seeding
 
-The project includes a repeatable seed workflow.
+Seed the development database with:
 
-Run:
-
+```bash
 npx prisma db seed
+```
 
-The seed creates development and demo hotel data including:
+The seed workflow creates demo data including:
 
-* Rooms
-* Guests
-* Employees
-* Reservations
-* Services
-* Feedback
-* User accounts
+- rooms
+- guests
+- employees
+- reservations
+- services
+- feedback
+- application users
 
 ---
 
-## Demo Accounts
+# Demo Accounts
 
-After running the seed workflow:
+These accounts are intended only for the development/demo dataset.
 
-### Manager
+## Manager
 
+```text
 Username: admin
 Password: admin123
+```
 
-### Front Desk
+## Front Desk
 
+```text
 Username: frontdesk
 Password: frontdesk123
-
-These credentials are intended only for the development and demo dataset.
+```
 
 ---
 
-## Project Structure
+# Project Structure
 
+```text
 hotel-management-app/
-
-* .github/
-
-  * workflows/
-
-    * ci.yml
-* backend/
-
-  * controllers/
-  * database/
-  * generated/
-  * middleware/
-  * prisma/
-  * repositories/
-  * routes/
-  * services/
-  * tests/
-  * Dockerfile
-  * .dockerignore
-  * .env.example
-  * prisma.config.ts
-  * prismaClient.ts
-  * server.ts
-  * package.json
-* frontend/
-
-  * app/
-
-    * (tabs)/
-  * api/
-  * constants/
-  * context/
-  * .env.example
-  * package.json
-* docker-compose.yml
-* .gitignore
-* README.md
+│
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+│
+├── backend/
+│   ├── controllers/
+│   ├── database/
+│   ├── generated/
+│   ├── middleware/
+│   ├── prisma/
+│   ├── repositories/
+│   ├── routes/
+│   ├── services/
+│   ├── tests/
+│   ├── Dockerfile
+│   ├── .dockerignore
+│   ├── .env.example
+│   ├── prisma.config.ts
+│   ├── prismaClient.ts
+│   ├── server.ts
+│   └── package.json
+│
+├── frontend/
+│   ├── app/
+│   │   └── (tabs)/
+│   ├── api/
+│   ├── constants/
+│   ├── context/
+│   ├── .env.example
+│   └── package.json
+│
+├── docker-compose.yml
+├── .gitignore
+└── README.md
+```
 
 ---
 
-## Environment Variables
+# Environment Variables
 
 Never commit production secrets.
 
-Use the included `.env.example` files as templates.
+Use the provided `.env.example` files.
 
-### Backend
+## Backend
 
 Create:
 
+```text
 backend/.env
+```
 
-Example values:
+Example:
 
+```env
 PORT=5001
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE
 JWT_SECRET=replace-with-a-long-random-secret
-PUBLIC_BACKEND_URL=[http://localhost:5001](http://localhost:5001)
+PUBLIC_BACKEND_URL=http://localhost:5001
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
+```
 
-Additional AI configuration may be provided when OpenAI-powered features are enabled.
+Optional AI configuration can also be supplied when OpenAI-powered tools are enabled.
 
-### Frontend
+## Frontend
 
 Create:
 
+```text
 frontend/.env.local
+```
 
-For a local backend:
+Local backend:
 
-EXPO_PUBLIC_API_URL=[http://localhost:5001](http://localhost:5001)
+```env
+EXPO_PUBLIC_API_URL=http://localhost:5001
+```
 
-For the deployed backend:
+Deployed backend:
 
-EXPO_PUBLIC_API_URL=[https://YOUR-BACKEND.onrender.com](https://YOUR-BACKEND.onrender.com)
-
-Do not commit `.env.local`.
+```env
+EXPO_PUBLIC_API_URL=https://hotel-management-app-se81.onrender.com
+```
 
 ---
 
-## Running Locally
+# Running Locally
 
-### Option 1 — Docker
-
-Docker Compose runs both PostgreSQL and the backend.
+## Docker
 
 From the project root:
 
+```bash
 docker compose up -d
+```
 
-Check running services:
+Check containers:
 
+```bash
 docker compose ps
+```
 
-Seed the Docker database:
+Seed the database:
 
+```bash
 docker compose exec backend npx prisma db seed
+```
 
-The backend is available at:
+Backend:
 
-[http://localhost:5001](http://localhost:5001)
+```text
+http://localhost:5001
+```
 
-Stop the environment with:
+Stop the stack:
 
+```bash
 docker compose down
+```
 
 ---
 
-### Option 2 — Local Node.js Backend
+## Local Backend Without Docker
 
-A local PostgreSQL database must already be available.
+A PostgreSQL database must already be running.
 
-From backend:
-
+```bash
+cd backend
 npm install
 npx prisma generate
 npx prisma migrate deploy
 npm run dev
-
-Backend:
-
-[http://localhost:5001](http://localhost:5001)
+```
 
 ---
 
-## Running the Frontend
+# Running the Frontend
 
-From frontend:
-
+```bash
+cd frontend
 npm install
 npx expo start
+```
 
-The application can be opened using:
+The application can run with:
 
-* Expo Go
-* iOS Simulator
-* Android Emulator
-* Expo Web
+- Expo Go
+- iOS Simulator
+- Android Emulator
+- Expo Web
 
-When using a physical phone with a locally hosted backend, localhost refers to the phone itself.
+When using a physical device with a locally hosted backend, use the computer's LAN IP instead of `localhost`.
 
-Use the Mac's local network address instead:
+On macOS:
 
+```bash
 ipconfig getifaddr en0
+```
 
 Then configure:
 
+```env
 EXPO_PUBLIC_API_URL=http://YOUR_MAC_IP:5001
+```
 
-When using the deployed Render backend, this local-network setup is not required.
+This is unnecessary when using the deployed Render backend.
 
 ---
 
-## Docker
+# Docker
 
-The project includes a Dockerized backend and PostgreSQL development environment.
+The local Docker environment includes:
 
-Docker Compose provides:
+- PostgreSQL 17
+- persistent PostgreSQL storage
+- PostgreSQL health checks
+- backend container
+- Prisma migration deployment
+- environment-based configuration
 
-* PostgreSQL 17
-* Persistent PostgreSQL volume
-* Database health checks
-* Backend container
-* Prisma migration deployment
-* Environment-variable configuration
+The containerized Express server listens on:
 
-The Dockerized backend listens on:
-
+```text
 0.0.0.0:5001
+```
 
 ---
 
-## Continuous Integration
+# Continuous Integration
 
-GitHub Actions automatically validates pull requests and pushes to main.
+GitHub Actions validates backend and frontend changes.
 
-### Backend CI
+## Backend CI
 
-The backend workflow:
+The workflow:
 
-1. Starts PostgreSQL
-2. Installs dependencies
-3. Generates Prisma Client
-4. Applies Prisma migrations
-5. Runs TypeScript type checking
-6. Runs the Vitest test suite
+1. starts PostgreSQL
+2. installs Node dependencies
+3. generates Prisma Client
+4. applies migrations
+5. runs TypeScript type checking
+6. executes the Vitest suite
 
-### Frontend CI
+## Frontend CI
 
-The frontend workflow:
+The workflow:
 
-1. Installs dependencies
-2. Runs TypeScript type checking
-3. Runs Expo lint
-
-This prevents broken backend or frontend changes from being merged unnoticed.
+1. installs dependencies
+2. runs TypeScript type checking
+3. runs Expo lint
 
 ---
 
-## Testing
+# Testing
 
 Backend tests use:
 
-* Vitest
-* Supertest
-* PostgreSQL test database
+- Vitest
+- Supertest
+- PostgreSQL test database
 
-Current automated coverage includes:
+Coverage currently includes:
 
-* Authentication
-* Invalid credentials
-* JWT-protected routes
-* Manager and Front Desk authorization
-* Room repository operations
-* Guest repository operations
-* Reservation creation
-* Reservation cancellation
-* Overlapping reservation prevention
-* Blocked-room prevention
-* Transaction rollback behavior
+- authentication
+- invalid credentials
+- JWT-protected routes
+- Manager authorization
+- Front Desk authorization
+- room repository operations
+- guest repository operations
+- reservation creation
+- reservation cancellation
+- reservation overlap prevention
+- blocked-room prevention
+- transaction rollback behavior
 
-Run backend tests with:
+Run:
 
+```bash
 cd backend
 npm test
+```
 
 Type check:
 
+```bash
 npm run typecheck
+```
 
-Frontend validation:
+Frontend:
 
+```bash
 cd frontend
 npx tsc --noEmit
 npm run lint
+```
 
 ---
 
-## Deployment
+# Deployment
 
-### Backend
+## Backend
 
-The Express API is deployed as a Render Web Service.
+The Express API is deployed as a Docker-based Render Web Service.
 
-The production backend:
+Production backend:
 
-* runs inside a Docker container
-* connects to hosted PostgreSQL
-* applies Prisma migrations
-* reads secrets from Render environment variables
-* exposes the public REST API over HTTPS
+```text
+https://hotel-management-app-se81.onrender.com
+```
 
-### Database
+The deployed backend:
 
-The deployed database runs on Supabase PostgreSQL.
+- runs inside a Docker container
+- exposes the REST API over HTTPS
+- connects to Supabase PostgreSQL
+- executes Prisma migrations
+- uses deployment environment variables
+- integrates with Stripe Checkout
+- receives Stripe webhook events
 
-Production database credentials are stored only as deployment environment variables.
+## Database
 
----
+Production data is stored in Supabase PostgreSQL.
 
-## Security
-
-The project includes several backend security controls:
-
-* Password hashing with bcrypt
-* JWT authentication
-* Route-level role authorization
-* Request validation with Zod
-* Centralized backend error handling
-* Backend-only Stripe credentials
-* Environment-based secrets
-* Protected Manager-only APIs
-* Secure client-side JWT storage
-
-Production secrets are excluded from Git.
+Database credentials and application secrets remain outside source control.
 
 ---
 
-## Key Engineering Improvements
+# Security
 
-The project evolved significantly from its initial implementation.
+The application includes:
 
-Major improvements include:
-
-* Migrated SQLite to PostgreSQL
-* Introduced Prisma ORM
-* Added database migrations
-* Added repeatable database seeding
-* Replaced demo authentication with JWT authentication
-* Added bcrypt password hashing
-* Added Manager and Front Desk RBAC
-* Added Zod validation
-* Added centralized error handling
-* Added transactional reservation creation
-* Added correct date-overlap booking logic
-* Added date-aware room availability API
-* Added automated backend testing
-* Added Stripe billing infrastructure
-* Added persistent frontend authentication
-* Added role-aware frontend navigation
-* Added Docker development environment
-* Added GitHub Actions CI
-* Deployed backend and PostgreSQL infrastructure
+- bcrypt password hashing
+- JWT authentication
+- route-level authorization
+- Manager / Front Desk RBAC
+- Zod request validation
+- centralized error handling
+- backend-only Stripe credentials
+- Stripe webhook signature verification
+- environment-based secrets
+- protected Manager APIs
+- Expo SecureStore authentication storage
 
 ---
 
-## Future Improvements
+# Engineering Evolution
 
-Potential future additions include:
+The project began as a simpler hotel application and was progressively hardened into a production-style system.
 
-* Full production Stripe webhook verification
-* Expanded integration and end-to-end testing
-* Public Expo web deployment
-* Advanced reservation search and filtering
-* Manager dashboard visualizations
-* Audit logging
-* Staff account management
-* Deployment monitoring and observability
+Major engineering improvements include:
+
+- migrated SQLite to PostgreSQL
+- introduced Prisma ORM
+- added database migrations
+- added repeatable database seeding
+- replaced demo authentication with JWT authentication
+- implemented bcrypt password hashing
+- implemented Manager / Front Desk RBAC
+- added Zod validation
+- added centralized error handling
+- added service and repository architecture
+- implemented transactional reservation creation
+- implemented correct interval-overlap booking logic
+- added date-based room availability
+- built Stripe Checkout billing
+- implemented signature-verified Stripe webhooks
+- verified Stripe payment processing end-to-end
+- added persistent mobile authentication
+- added role-aware frontend navigation
+- added automated backend testing
+- added Docker local development
+- added GitHub Actions CI
+- deployed the backend to Render
+- migrated production data to Supabase PostgreSQL
 
 ---
 
-## Purpose
+# Future Improvements
 
-This project was built to go beyond a basic CRUD application and practice real software engineering concepts across the full stack:
+Potential extensions include:
 
-* API architecture
-* Authentication
-* Authorization
-* Relational database design
-* ORM migration
-* Transactions
-* Business-rule validation
-* Automated testing
-* Mobile application development
-* Cloud deployment
-* Containerization
-* CI/CD
-* Third-party API integration
+- public Expo web deployment
+- expanded end-to-end frontend testing
+- advanced reservation search and filtering
+- dashboard visualizations
+- audit logging
+- staff account administration
+- deployment monitoring and observability
 
-The result is a production-style hotel operations platform that can be run locally with Docker or connected to its deployed backend.
+---
+
+# Project Goal
+
+This project was built to practice more than CRUD development.
+
+It covers real software-engineering concerns including:
+
+- API architecture
+- authentication
+- authorization
+- relational database design
+- ORM migration
+- transactions
+- business-rule validation
+- automated testing
+- mobile development
+- cloud deployment
+- containerization
+- CI/CD
+- third-party payment integration
+- webhook security
+- AI API integration
+
+The result is a deployable hotel operations platform with a mobile client, production backend, PostgreSQL database, automated tests, CI, containerized local environment, and verified payment workflow.
