@@ -1,137 +1,654 @@
-import { getDB } from "../db";
+import { prisma } from "../prismaClient";
+import {
+  MembershipLevel,
+  ReservationStatus,
+  RoomAvailability,
+  RoomType,
+  ServiceRequestStatus,
+  ServiceType,
+} from "../generated/prisma/client";
+
+function roomTypeToLegacy(
+  value: RoomType
+) {
+  switch (value) {
+    case RoomType.KING:
+      return "King";
+    case RoomType.QUEEN:
+      return "Queen";
+    case RoomType.DELUXE:
+      return "Deluxe";
+    case RoomType.ACCESSIBLE:
+      return "Accessible";
+  }
+}
+
+function reservationStatusToLegacy(
+  value: ReservationStatus
+) {
+  switch (value) {
+    case ReservationStatus.CONFIRMED:
+      return "Confirmed";
+    case ReservationStatus.PENDING:
+      return "Pending";
+    case ReservationStatus.CANCELLED:
+      return "Cancelled";
+    case ReservationStatus.COMPLETED:
+      return "Completed";
+    case ReservationStatus.NO_SHOW:
+      return "No-Show";
+  }
+}
+
+function serviceStatusToLegacy(
+  value: ServiceRequestStatus
+) {
+  switch (value) {
+    case ServiceRequestStatus.PENDING:
+      return "Pending";
+    case ServiceRequestStatus.IN_PROGRESS:
+      return "In Progress";
+    case ServiceRequestStatus.COMPLETED:
+      return "Completed";
+    case ServiceRequestStatus.CANCELLED:
+      return "Cancelled";
+  }
+}
+
+function serviceTypeToLegacy(
+  value: ServiceType
+) {
+  switch (value) {
+    case ServiceType.ROOM_SERVICE:
+      return "Room Service";
+    case ServiceType.SPA:
+      return "Spa";
+    case ServiceType.SHUTTLE:
+      return "Shuttle";
+  }
+}
+
+function membershipToLegacy(
+  value: MembershipLevel | null
+) {
+  if (!value) {
+    return null;
+  }
+
+  switch (value) {
+    case MembershipLevel.BRONZE:
+      return "Bronze";
+    case MembershipLevel.SILVER:
+      return "Silver";
+    case MembershipLevel.GOLD:
+      return "Gold";
+    case MembershipLevel.PLATINUM:
+      return "Platinum";
+  }
+}
 
 export async function getOperationalSummary() {
-  const db = await getDB();
+  const [
+    totalRooms,
+    availableRooms,
+    reservedRooms,
+    occupiedRooms,
+    blockedRooms,
+    totalGuests,
+    totalReservations,
+    activeReservations,
+    cancelledReservations,
+    pendingServices,
+    inProgressServices,
+    completedServices,
+    activeRevenue,
+    feedback,
+  ] = await Promise.all([
+    prisma.room.count(),
 
-  return db.get(`
-    SELECT
-      (SELECT COUNT(*) FROM Room) AS totalRooms,
-      (SELECT COUNT(*) FROM Room WHERE AvailStatus = 'Available') AS availableRooms,
-      (SELECT COUNT(*) FROM Room WHERE AvailStatus = 'Reserved') AS reservedRooms,
-      (SELECT COUNT(*) FROM Room WHERE AvailStatus = 'Occupied') AS occupiedRooms,
-      (SELECT COUNT(*) FROM Room WHERE AvailStatus = 'Blocked') AS blockedRooms,
-      (SELECT COUNT(*) FROM Guest) AS totalGuests,
-      (SELECT COUNT(*) FROM Reservation) AS totalReservations,
-      (SELECT COUNT(*) FROM Reservation WHERE ReservStatus IN ('Confirmed', 'Pending')) AS activeReservations,
-      (SELECT COUNT(*) FROM Reservation WHERE ReservStatus = 'Cancelled') AS cancelledReservations,
-      (SELECT COUNT(*) FROM Service WHERE RequestStatus = 'Pending') AS pendingServices,
-      (SELECT COUNT(*) FROM Service WHERE RequestStatus = 'In Progress') AS inProgressServices,
-      (SELECT COALESCE(SUM(ServicePrice), 0) FROM Service WHERE RequestStatus = 'Completed') AS completedServiceRevenue,
-      (SELECT COALESCE(SUM(TotalPrice), 0) FROM Reservation WHERE ReservStatus != 'Cancelled') AS reservationRevenue,
-      (SELECT ROUND(AVG(RoomRating), 2) FROM Feedback) AS avgRoomRating,
-      (SELECT ROUND(AVG(CustSvcRating), 2) FROM Feedback) AS avgCustomerServiceRating,
-      (SELECT ROUND(AVG(SafetyRating), 2) FROM Feedback) AS avgSafetyRating,
-      (SELECT ROUND(AVG(BreakfastRating), 2) FROM Feedback) AS avgBreakfastRating
-  `);
+    prisma.room.count({
+      where: {
+        availStatus:
+          RoomAvailability.AVAILABLE,
+      },
+    }),
+
+    prisma.room.count({
+      where: {
+        availStatus:
+          RoomAvailability.RESERVED,
+      },
+    }),
+
+    prisma.room.count({
+      where: {
+        availStatus:
+          RoomAvailability.OCCUPIED,
+      },
+    }),
+
+    prisma.room.count({
+      where: {
+        availStatus:
+          RoomAvailability.BLOCKED,
+      },
+    }),
+
+    prisma.guest.count(),
+
+    prisma.reservation.count(),
+
+    prisma.reservation.count({
+      where: {
+        reservStatus: {
+          in: [
+            ReservationStatus.CONFIRMED,
+            ReservationStatus.PENDING,
+          ],
+        },
+      },
+    }),
+
+    prisma.reservation.count({
+      where: {
+        reservStatus:
+          ReservationStatus.CANCELLED,
+      },
+    }),
+
+    prisma.service.count({
+      where: {
+        requestStatus:
+          ServiceRequestStatus.PENDING,
+      },
+    }),
+
+    prisma.service.count({
+      where: {
+        requestStatus:
+          ServiceRequestStatus.IN_PROGRESS,
+      },
+    }),
+
+    prisma.service.aggregate({
+      where: {
+        requestStatus:
+          ServiceRequestStatus.COMPLETED,
+      },
+      _sum: {
+        servicePrice: true,
+      },
+    }),
+
+    prisma.reservation.aggregate({
+      where: {
+        reservStatus: {
+          not:
+            ReservationStatus.CANCELLED,
+        },
+      },
+      _sum: {
+        totalPrice: true,
+      },
+    }),
+
+    prisma.feedback.findMany(),
+  ]);
+
+  const avg = (
+    values: Array<number | null>
+  ) => {
+    const valid = values.filter(
+      (value): value is number =>
+        value !== null
+    );
+
+    if (!valid.length) {
+      return null;
+    }
+
+    return Number(
+      (
+        valid.reduce(
+          (sum, value) =>
+            sum + value,
+          0
+        ) / valid.length
+      ).toFixed(2)
+    );
+  };
+
+  return {
+    totalRooms,
+    availableRooms,
+    reservedRooms,
+    occupiedRooms,
+    blockedRooms,
+
+    totalGuests,
+    totalReservations,
+    activeReservations,
+    cancelledReservations,
+
+    pendingServices,
+    inProgressServices,
+
+    completedServiceRevenue:
+      completedServices._sum
+        .servicePrice ?? 0,
+
+    reservationRevenue:
+      activeRevenue._sum
+        .totalPrice ?? 0,
+
+    avgRoomRating: avg(
+      feedback.map(
+        (item) =>
+          item.roomRating
+      )
+    ),
+
+    avgCustomerServiceRating:
+      avg(
+        feedback.map(
+          (item) =>
+            item.custSvcRating
+        )
+      ),
+
+    avgSafetyRating: avg(
+      feedback.map(
+        (item) =>
+          item.safetyRating
+      )
+    ),
+
+    avgBreakfastRating: avg(
+      feedback.map(
+        (item) =>
+          item.breakfastRating
+      )
+    ),
+  };
 }
 
 export async function getRoomTypePerformance() {
-  const db = await getDB();
+  const rooms =
+    await prisma.room.findMany();
 
-  return db.all(`
-    SELECT
-      RoomType,
-      COUNT(*) AS totalRooms,
-      SUM(CASE WHEN AvailStatus = 'Available' THEN 1 ELSE 0 END) AS availableRooms,
-      SUM(CASE WHEN AvailStatus = 'Reserved' THEN 1 ELSE 0 END) AS reservedRooms,
-      SUM(CASE WHEN AvailStatus = 'Occupied' THEN 1 ELSE 0 END) AS occupiedRooms,
-      SUM(CASE WHEN AvailStatus = 'Blocked' THEN 1 ELSE 0 END) AS blockedRooms,
-      ROUND(AVG(RatePerNight), 2) AS avgRate
-    FROM Room
-    GROUP BY RoomType
-    ORDER BY totalRooms DESC, avgRate DESC
-  `);
+  const groups = new Map<
+    string,
+    any
+  >();
+
+  for (const room of rooms) {
+    const roomType =
+      roomTypeToLegacy(
+        room.roomType
+      );
+
+    if (!groups.has(roomType)) {
+      groups.set(roomType, {
+        RoomType: roomType,
+        totalRooms: 0,
+        availableRooms: 0,
+        reservedRooms: 0,
+        occupiedRooms: 0,
+        blockedRooms: 0,
+        rateTotal: 0,
+      });
+    }
+
+    const group =
+      groups.get(roomType);
+
+    group.totalRooms += 1;
+    group.rateTotal +=
+      room.ratePerNight;
+
+    if (
+      room.availStatus ===
+      RoomAvailability.AVAILABLE
+    ) {
+      group.availableRooms += 1;
+    }
+
+    if (
+      room.availStatus ===
+      RoomAvailability.RESERVED
+    ) {
+      group.reservedRooms += 1;
+    }
+
+    if (
+      room.availStatus ===
+      RoomAvailability.OCCUPIED
+    ) {
+      group.occupiedRooms += 1;
+    }
+
+    if (
+      room.availStatus ===
+      RoomAvailability.BLOCKED
+    ) {
+      group.blockedRooms += 1;
+    }
+  }
+
+  return Array.from(
+    groups.values()
+  )
+    .map((group) => ({
+      RoomType: group.RoomType,
+
+      totalRooms:
+        group.totalRooms,
+
+      availableRooms:
+        group.availableRooms,
+
+      reservedRooms:
+        group.reservedRooms,
+
+      occupiedRooms:
+        group.occupiedRooms,
+
+      blockedRooms:
+        group.blockedRooms,
+
+      avgRate: Number(
+        (
+          group.rateTotal /
+          group.totalRooms
+        ).toFixed(2)
+      ),
+    }))
+    .sort(
+      (a, b) =>
+        b.totalRooms -
+          a.totalRooms ||
+        b.avgRate - a.avgRate
+    );
 }
 
 export async function getReservationStatusBreakdown() {
-  const db = await getDB();
+  const reservations =
+    await prisma.reservation.findMany();
 
-  return db.all(`
-    SELECT
-      ReservStatus,
-      COUNT(*) AS count,
-      COALESCE(SUM(TotalPrice), 0) AS revenue
-    FROM Reservation
-    GROUP BY ReservStatus
-    ORDER BY count DESC
-  `);
+  const groups = new Map<
+    string,
+    {
+      ReservStatus: string;
+      count: number;
+      revenue: number;
+    }
+  >();
+
+  for (const reservation of reservations) {
+    const status =
+      reservationStatusToLegacy(
+        reservation.reservStatus
+      );
+
+    const group =
+      groups.get(status) ?? {
+        ReservStatus: status,
+        count: 0,
+        revenue: 0,
+      };
+
+    group.count += 1;
+    group.revenue +=
+      reservation.totalPrice;
+
+    groups.set(status, group);
+  }
+
+  return Array.from(
+    groups.values()
+  ).sort(
+    (a, b) =>
+      b.count - a.count
+  );
 }
 
 export async function getServiceStatusBreakdown() {
-  const db = await getDB();
+  const services =
+    await prisma.service.findMany();
 
-  return db.all(`
-    SELECT
-      RequestStatus,
-      COUNT(*) AS count,
-      COALESCE(SUM(ServicePrice), 0) AS revenue
-    FROM Service
-    GROUP BY RequestStatus
-    ORDER BY count DESC
-  `);
+  const groups = new Map<
+    string,
+    {
+      RequestStatus: string;
+      count: number;
+      revenue: number;
+    }
+  >();
+
+  for (const service of services) {
+    const status =
+      serviceStatusToLegacy(
+        service.requestStatus
+      );
+
+    const group =
+      groups.get(status) ?? {
+        RequestStatus: status,
+        count: 0,
+        revenue: 0,
+      };
+
+    group.count += 1;
+    group.revenue +=
+      service.servicePrice;
+
+    groups.set(status, group);
+  }
+
+  return Array.from(
+    groups.values()
+  ).sort(
+    (a, b) =>
+      b.count - a.count
+  );
 }
 
 export async function getServiceRevenueByType() {
-  const db = await getDB();
+  const services =
+    await prisma.service.findMany({
+      where: {
+        requestStatus: {
+          not:
+            ServiceRequestStatus.CANCELLED,
+        },
+      },
+    });
 
-  return db.all(`
-    SELECT
-      ServiceType,
-      COUNT(*) AS serviceCount,
-      COALESCE(SUM(ServicePrice), 0) AS totalRevenue,
-      ROUND(AVG(ServicePrice), 2) AS avgPrice
-    FROM Service
-    WHERE RequestStatus != 'Cancelled'
-    GROUP BY ServiceType
-    ORDER BY totalRevenue DESC
-  `);
+  const groups = new Map<
+    string,
+    {
+      ServiceType: string;
+      serviceCount: number;
+      totalRevenue: number;
+    }
+  >();
+
+  for (const service of services) {
+    const type =
+      serviceTypeToLegacy(
+        service.serviceType
+      );
+
+    const group =
+      groups.get(type) ?? {
+        ServiceType: type,
+        serviceCount: 0,
+        totalRevenue: 0,
+      };
+
+    group.serviceCount += 1;
+
+    group.totalRevenue +=
+      service.servicePrice;
+
+    groups.set(type, group);
+  }
+
+  return Array.from(
+    groups.values()
+  )
+    .map((group) => ({
+      ...group,
+
+      avgPrice: Number(
+        (
+          group.totalRevenue /
+          group.serviceCount
+        ).toFixed(2)
+      ),
+    }))
+    .sort(
+      (a, b) =>
+        b.totalRevenue -
+        a.totalRevenue
+    );
 }
 
 export async function getTopGuests() {
-  const db = await getDB();
+  const guests =
+    await prisma.guest.findMany({
+      include: {
+        membership: true,
 
-  return db.all(`
-    SELECT
-      g.GuestID,
-      g.FirstName || ' ' || g.LastName AS guestName,
-      m.MembershipLevel,
-      COUNT(r.ReservationID) AS reservationCount,
-      COALESCE(SUM(r.TotalPrice), 0) AS totalSpent
-    FROM Guest g
-    JOIN Reservation r ON g.GuestID = r.GuestID
-    LEFT JOIN Membership m ON g.GuestID = m.GuestID
-    WHERE r.ReservStatus != 'Cancelled'
-    GROUP BY g.GuestID, g.FirstName, g.LastName, m.MembershipLevel
-    ORDER BY totalSpent DESC
-    LIMIT 5
-  `);
+        reservations: {
+          where: {
+            reservStatus: {
+              not:
+                ReservationStatus.CANCELLED,
+            },
+          },
+        },
+      },
+    });
+
+  return guests
+    .map((guest) => ({
+      GuestID: guest.guestId,
+
+      guestName:
+        `${guest.firstName} ${guest.lastName}`,
+
+      MembershipLevel:
+        membershipToLegacy(
+          guest.membership
+            ?.membershipLevel ??
+            null
+        ),
+
+      reservationCount:
+        guest.reservations.length,
+
+      totalSpent:
+        guest.reservations.reduce(
+          (
+            sum,
+            reservation
+          ) =>
+            sum +
+            reservation.totalPrice,
+          0
+        ),
+    }))
+    .filter(
+      (guest) =>
+        guest.reservationCount > 0
+    )
+    .sort(
+      (a, b) =>
+        b.totalSpent -
+        a.totalSpent
+    )
+    .slice(0, 5);
 }
 
 export async function getRecentLowFeedback() {
-  const db = await getDB();
+  const feedback =
+    await prisma.feedback.findMany({
+      where: {
+        OR: [
+          {
+            roomRating: {
+              lte: 3,
+            },
+          },
+          {
+            breakfastRating: {
+              lte: 3,
+            },
+          },
+          {
+            safetyRating: {
+              lte: 3,
+            },
+          },
+          {
+            custSvcRating: {
+              lte: 3,
+            },
+          },
+        ],
+      },
 
-  return db.all(`
-    SELECT
-      f.FeedbackID,
-      f.ReservationID,
-      g.FirstName || ' ' || g.LastName AS guestName,
-      ro.RoomType,
-      f.RoomRating,
-      f.BreakfastRating,
-      f.SafetyRating,
-      f.CustSvcRating,
-      f.Comments,
-      f.SubmissionDate
-    FROM Feedback f
-    JOIN Reservation r ON f.ReservationID = r.ReservationID
-    JOIN Guest g ON r.GuestID = g.GuestID
-    JOIN Room ro ON r.RoomNumber = ro.RoomNumber
-    WHERE
-      f.RoomRating <= 3
-      OR f.BreakfastRating <= 3
-      OR f.CustSvcRating <= 3
-      OR f.SafetyRating <= 3
-    ORDER BY f.SubmissionDate DESC
-    LIMIT 5
-  `);
+      include: {
+        reservation: {
+          include: {
+            guest: true,
+            room: true,
+          },
+        },
+      },
+
+      orderBy: {
+        submissionDate: "desc",
+      },
+
+      take: 5,
+    });
+
+  return feedback.map(
+    (item) => ({
+      FeedbackID:
+        item.feedbackId,
+
+      ReservationID: Number(
+        item.reservationId
+      ),
+
+      guestName:
+        `${item.reservation.guest.firstName} ${item.reservation.guest.lastName}`,
+
+      RoomType:
+        roomTypeToLegacy(
+          item.reservation.room.roomType
+        ),
+
+      RoomRating:
+        item.roomRating,
+
+      BreakfastRating:
+        item.breakfastRating,
+
+      SafetyRating:
+        item.safetyRating,
+
+      CustSvcRating:
+        item.custSvcRating,
+
+      Comments:
+        item.comments,
+
+      SubmissionDate:
+        item.submissionDate,
+    })
+  );
 }

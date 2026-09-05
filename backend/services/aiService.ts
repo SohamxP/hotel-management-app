@@ -1,4 +1,4 @@
-import { getDB } from "../db";
+import { prisma } from "../prismaClient";
 
 export type InsightSeverity = "critical" | "warning" | "info" | "success";
 export type ActionPriority = "High" | "Medium" | "Low";
@@ -49,6 +49,47 @@ export type ForecastItem = {
   owner: string;
 };
 
+function normalizeBigInts<T>(value: T): T {
+  if (typeof value === "bigint") {
+    return Number(value) as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      normalizeBigInts(item)
+    ) as T;
+  }
+
+  if (
+    value &&
+    typeof value === "object"
+  ) {
+    const output: any = {};
+
+    for (const [key, item] of Object.entries(
+      value as any
+    )) {
+      output[key] =
+        normalizeBigInts(item);
+    }
+
+    return output;
+  }
+
+  return value;
+}
+
+async function queryRows(
+  sql: string
+): Promise<any[]> {
+  const result =
+    await prisma.$queryRawUnsafe<any[]>(
+      sql
+    );
+
+  return normalizeBigInts(result);
+}
+
 function numberValue(value: unknown) {
   const parsed = Number(value || 0);
   return Number.isNaN(parsed) ? 0 : parsed;
@@ -67,8 +108,6 @@ function getCount(rows: any[], key: string, value: string) {
 }
 
 export async function getHotelOperationsSnapshot() {
-  const db = await getDB();
-
   const [
     roomStatusSummary,
     roomTypePerformance,
@@ -83,248 +122,524 @@ export async function getHotelOperationsSnapshot() {
     paymentModeSummary,
     blockedRooms,
   ] = await Promise.all([
-    db.all(`
+    queryRows(`
       SELECT
-        AvailStatus AS status,
+        "AvailStatus"::text AS status,
         COUNT(*) AS count
-      FROM Room
-      GROUP BY AvailStatus
+      FROM "Room"
+      GROUP BY "AvailStatus"
       ORDER BY count DESC
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        RoomType,
-        COUNT(*) AS roomCount,
-        ROUND(AVG(RatePerNight), 2) AS avgRate,
-        SUM(CASE WHEN AvailStatus = 'Available' THEN 1 ELSE 0 END) AS available,
-        SUM(CASE WHEN AvailStatus = 'Reserved' THEN 1 ELSE 0 END) AS reserved,
-        SUM(CASE WHEN AvailStatus = 'Occupied' THEN 1 ELSE 0 END) AS occupied,
-        SUM(CASE WHEN AvailStatus = 'Blocked' THEN 1 ELSE 0 END) AS blocked
-      FROM Room
-      GROUP BY RoomType
-      ORDER BY roomCount DESC
+        "RoomType"::text AS "RoomType",
+        COUNT(*) AS "roomCount",
+        AVG("RatePerNight") AS "avgRate",
+
+        SUM(
+          CASE
+            WHEN "AvailStatus"::text = 'Available'
+            THEN 1
+            ELSE 0
+          END
+        ) AS available,
+
+        SUM(
+          CASE
+            WHEN "AvailStatus"::text = 'Reserved'
+            THEN 1
+            ELSE 0
+          END
+        ) AS reserved,
+
+        SUM(
+          CASE
+            WHEN "AvailStatus"::text = 'Occupied'
+            THEN 1
+            ELSE 0
+          END
+        ) AS occupied,
+
+        SUM(
+          CASE
+            WHEN "AvailStatus"::text = 'Blocked'
+            THEN 1
+            ELSE 0
+          END
+        ) AS blocked
+
+      FROM "Room"
+      GROUP BY "RoomType"
+      ORDER BY "roomCount" DESC
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        ReservStatus AS status,
+        "ReservStatus"::text AS status,
         COUNT(*) AS count,
-        ROUND(SUM(TotalPrice), 2) AS totalRevenue
-      FROM Reservation
-      GROUP BY ReservStatus
+        SUM("TotalPrice") AS "totalRevenue"
+      FROM "Reservation"
+      GROUP BY "ReservStatus"
       ORDER BY count DESC
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        r.ReservationID,
-        r.GuestID,
-        g.FirstName,
-        g.LastName,
-        r.RoomNumber,
-        ro.RoomType,
-        r.CheckInDate,
-        r.CheckOutDate,
-        r.TotalPrice,
-        r.ReservStatus,
-        r.SpecialRequest
-      FROM Reservation r
-      JOIN Guest g ON g.GuestID = r.GuestID
-      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
-      WHERE r.ReservStatus IN ('Confirmed', 'Pending')
-      ORDER BY r.CheckInDate ASC
+        r."ReservationID",
+        r."GuestID",
+        g."FirstName",
+        g."LastName",
+        r."RoomNumber",
+        ro."RoomType"::text AS "RoomType",
+        r."CheckInDate",
+        r."CheckOutDate",
+        r."TotalPrice",
+        r."ReservStatus"::text AS "ReservStatus",
+        r."SpecialRequest"
+
+      FROM "Reservation" r
+
+      JOIN "Guest" g
+        ON g."GuestID" = r."GuestID"
+
+      JOIN "Room" ro
+        ON ro."RoomNumber" =
+           r."RoomNumber"
+
+      WHERE r."ReservStatus"::text
+        IN ('Confirmed', 'Pending')
+
+      ORDER BY r."CheckInDate" ASC
       LIMIT 10
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        RequestStatus AS status,
+        "RequestStatus"::text AS status,
         COUNT(*) AS count,
-        ROUND(SUM(ServicePrice), 2) AS totalValue
-      FROM Service
-      GROUP BY RequestStatus
+        SUM("ServicePrice") AS "totalValue"
+
+      FROM "Service"
+
+      GROUP BY "RequestStatus"
       ORDER BY count DESC
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        s.ServiceID,
-        s.ReservationID,
-        s.ServiceType,
-        s.RequestStatus,
-        s.ServicePrice,
-        s.RequestTime,
-        s.EmployeeID,
-        e.FirstName AS EmployeeFirstName,
-        e.LastName AS EmployeeLastName,
-        e.Position AS EmployeePosition,
-        r.RoomNumber,
-        g.FirstName AS GuestFirstName,
-        g.LastName AS GuestLastName
-      FROM Service s
-      JOIN Reservation r ON r.ReservationID = s.ReservationID
-      JOIN Guest g ON g.GuestID = r.GuestID
-      LEFT JOIN Employee e ON e.EmployeeID = s.EmployeeID
-      WHERE s.RequestStatus IN ('Pending', 'In Progress')
+        s."ServiceID",
+        s."ReservationID",
+        s."ServiceType"::text
+          AS "ServiceType",
+
+        s."RequestStatus"::text
+          AS "RequestStatus",
+
+        s."ServicePrice",
+        s."RequestTime",
+        s."EmployeeID",
+
+        e."FirstName"
+          AS "EmployeeFirstName",
+
+        e."LastName"
+          AS "EmployeeLastName",
+
+        e."Position"
+          AS "EmployeePosition",
+
+        r."RoomNumber",
+
+        g."FirstName"
+          AS "GuestFirstName",
+
+        g."LastName"
+          AS "GuestLastName"
+
+      FROM "Service" s
+
+      JOIN "Reservation" r
+        ON r."ReservationID" =
+           s."ReservationID"
+
+      JOIN "Guest" g
+        ON g."GuestID" =
+           r."GuestID"
+
+      LEFT JOIN "Employee" e
+        ON e."EmployeeID" =
+           s."EmployeeID"
+
+      WHERE s."RequestStatus"::text
+        IN ('Pending', 'In Progress')
+
       ORDER BY
-        CASE s.RequestStatus WHEN 'In Progress' THEN 0 ELSE 1 END,
-        s.RequestTime ASC
+        CASE
+          WHEN s."RequestStatus"::text =
+               'In Progress'
+          THEN 0
+          ELSE 1
+        END,
+        s."RequestTime" ASC
+
       LIMIT 10
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        ServiceType,
-        COUNT(*) AS serviceCount,
-        ROUND(SUM(ServicePrice), 2) AS revenue,
-        ROUND(AVG(ServicePrice), 2) AS avgPrice
-      FROM Service
-      WHERE RequestStatus = 'Completed'
-      GROUP BY ServiceType
+        "ServiceType"::text
+          AS "ServiceType",
+
+        COUNT(*) AS "serviceCount",
+
+        SUM("ServicePrice")
+          AS revenue,
+
+        AVG("ServicePrice")
+          AS "avgPrice"
+
+      FROM "Service"
+
+      WHERE "RequestStatus"::text =
+            'Completed'
+
+      GROUP BY "ServiceType"
       ORDER BY revenue DESC
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        f.FeedbackID,
-        f.ReservationID,
-        g.FirstName,
-        g.LastName,
-        r.RoomNumber,
-        ro.RoomType,
-        ROUND((COALESCE(f.RoomRating, 0) + COALESCE(f.BreakfastRating, 0) + COALESCE(f.SafetyRating, 0) + COALESCE(f.CustSvcRating, 0)) / 4.0, 2) AS averageRating,
-        f.RoomRating,
-        f.BreakfastRating,
-        f.SafetyRating,
-        f.CustSvcRating,
-        f.Comments,
-        f.SubmissionDate
-      FROM Feedback f
-      JOIN Reservation r ON r.ReservationID = f.ReservationID
-      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
-      JOIN Guest g ON g.GuestID = r.GuestID
+        f."FeedbackID",
+        f."ReservationID",
+
+        g."FirstName",
+        g."LastName",
+
+        r."RoomNumber",
+
+        ro."RoomType"::text
+          AS "RoomType",
+
+        (
+          COALESCE(f."RoomRating", 0) +
+          COALESCE(
+            f."BreakfastRating",
+            0
+          ) +
+          COALESCE(f."SafetyRating", 0) +
+          COALESCE(
+            f."CustSvcRating",
+            0
+          )
+        ) / 4.0 AS "averageRating",
+
+        f."RoomRating",
+        f."BreakfastRating",
+        f."SafetyRating",
+        f."CustSvcRating",
+        f."Comments",
+        f."SubmissionDate"
+
+      FROM "Feedback" f
+
+      JOIN "Reservation" r
+        ON r."ReservationID" =
+           f."ReservationID"
+
+      JOIN "Room" ro
+        ON ro."RoomNumber" =
+           r."RoomNumber"
+
+      JOIN "Guest" g
+        ON g."GuestID" =
+           r."GuestID"
+
       WHERE
-        ((COALESCE(f.RoomRating, 0) + COALESCE(f.BreakfastRating, 0) + COALESCE(f.SafetyRating, 0) + COALESCE(f.CustSvcRating, 0)) / 4.0) <= 3.6
-        OR LOWER(COALESCE(f.Comments, '')) LIKE '%slow%'
-        OR LOWER(COALESCE(f.Comments, '')) LIKE '%noisy%'
-        OR LOWER(COALESCE(f.Comments, '')) LIKE '%average%'
-      ORDER BY averageRating ASC, f.SubmissionDate DESC
+        (
+          COALESCE(f."RoomRating", 0) +
+          COALESCE(
+            f."BreakfastRating",
+            0
+          ) +
+          COALESCE(f."SafetyRating", 0) +
+          COALESCE(
+            f."CustSvcRating",
+            0
+          )
+        ) / 4.0 <= 3.6
+
+        OR LOWER(
+          COALESCE(f."Comments", '')
+        ) LIKE '%slow%'
+
+        OR LOWER(
+          COALESCE(f."Comments", '')
+        ) LIKE '%noisy%'
+
+        OR LOWER(
+          COALESCE(f."Comments", '')
+        ) LIKE '%average%'
+
+      ORDER BY
+        "averageRating" ASC,
+        f."SubmissionDate" DESC
+
       LIMIT 8
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        g.GuestID,
-        g.FirstName,
-        g.LastName,
-        g.Email,
-        m.MembershipLevel,
-        m.PreferredRoomType,
-        COUNT(r.ReservationID) AS reservationCount,
-        ROUND(SUM(r.TotalPrice), 2) AS totalSpent,
-        ROUND(AVG(julianday(r.CheckOutDate) - julianday(r.CheckInDate)), 1) AS avgStayNights
-      FROM Guest g
-      JOIN Reservation r ON r.GuestID = g.GuestID
-      LEFT JOIN Membership m ON m.GuestID = g.GuestID
-      GROUP BY g.GuestID
-      ORDER BY totalSpent DESC
+        g."GuestID",
+        g."FirstName",
+        g."LastName",
+        g."Email",
+
+        m."MembershipLevel"::text
+          AS "MembershipLevel",
+
+        m."PreferredRoomType"::text
+          AS "PreferredRoomType",
+
+        COUNT(r."ReservationID")
+          AS "reservationCount",
+
+        SUM(r."TotalPrice")
+          AS "totalSpent",
+
+        AVG(
+          (
+            TO_DATE(
+              r."CheckOutDate",
+              'YYYY-MM-DD'
+            ) -
+            TO_DATE(
+              r."CheckInDate",
+              'YYYY-MM-DD'
+            )
+          )::numeric
+        ) AS "avgStayNights"
+
+      FROM "Guest" g
+
+      JOIN "Reservation" r
+        ON r."GuestID" =
+           g."GuestID"
+
+      LEFT JOIN "Membership" m
+        ON m."GuestID" =
+           g."GuestID"
+
+      GROUP BY
+        g."GuestID",
+        g."FirstName",
+        g."LastName",
+        g."Email",
+        m."MembershipLevel",
+        m."PreferredRoomType"
+
+      ORDER BY "totalSpent" DESC
       LIMIT 8
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        m.MembershipLevel,
-        COUNT(DISTINCT g.GuestID) AS guestCount,
-        COUNT(r.ReservationID) AS reservationCount,
-        ROUND(SUM(r.TotalPrice), 2) AS totalRevenue
-      FROM Membership m
-      JOIN Guest g ON g.GuestID = m.GuestID
-      LEFT JOIN Reservation r ON r.GuestID = g.GuestID
-      GROUP BY m.MembershipLevel
-      ORDER BY totalRevenue DESC
+        m."MembershipLevel"::text
+          AS "MembershipLevel",
+
+        COUNT(DISTINCT g."GuestID")
+          AS "guestCount",
+
+        COUNT(r."ReservationID")
+          AS "reservationCount",
+
+        COALESCE(
+          SUM(r."TotalPrice"),
+          0
+        ) AS "totalRevenue"
+
+      FROM "Membership" m
+
+      JOIN "Guest" g
+        ON g."GuestID" =
+           m."GuestID"
+
+      LEFT JOIN "Reservation" r
+        ON r."GuestID" =
+           g."GuestID"
+
+      GROUP BY m."MembershipLevel"
+      ORDER BY "totalRevenue" DESC
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        PaymentMode,
-        COUNT(*) AS reservationCount,
-        ROUND(SUM(TotalPrice), 2) AS totalRevenue
-      FROM Reservation
-      GROUP BY PaymentMode
-      ORDER BY reservationCount DESC
+        "PaymentMode"::text
+          AS "PaymentMode",
+
+        COUNT(*) AS "reservationCount",
+
+        SUM("TotalPrice")
+          AS "totalRevenue"
+
+      FROM "Reservation"
+
+      GROUP BY "PaymentMode"
+      ORDER BY "reservationCount" DESC
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        RoomNumber,
-        RoomType,
-        RatePerNight,
-        BuildingNumber,
-        HasWifi,
-        HasTv,
-        HasBalcony
-      FROM Room
-      WHERE AvailStatus = 'Blocked'
-      ORDER BY RatePerNight DESC
+        "RoomNumber",
+        "RoomType"::text
+          AS "RoomType",
+        "RatePerNight",
+        "BuildingNumber",
+        "HasWifi",
+        "HasTv",
+        "HasBalcony"
+
+      FROM "Room"
+
+      WHERE "AvailStatus"::text =
+            'Blocked'
+
+      ORDER BY "RatePerNight" DESC
     `),
   ]);
 
-  const totalRooms = roomStatusSummary.reduce(
-    (sum: number, row: any) => sum + numberValue(row.count),
-    0
-  );
-  const availableRooms = getCount(roomStatusSummary, "status", "Available");
-  const reservedRooms = getCount(roomStatusSummary, "status", "Reserved");
-  const occupiedRooms = getCount(roomStatusSummary, "status", "Occupied");
-  const blockedRoomCount = getCount(roomStatusSummary, "status", "Blocked");
-  const availabilityRate = totalRooms ? (availableRooms / totalRooms) * 100 : 0;
+  const totalRooms =
+    roomStatusSummary.reduce(
+      (sum: number, row: any) =>
+        sum +
+        numberValue(row.count),
+      0
+    );
 
-  const pendingReservations = getCount(
-    reservationStatusSummary,
-    "status",
-    "Pending"
-  );
-  const confirmedReservations = getCount(
-    reservationStatusSummary,
-    "status",
-    "Confirmed"
-  );
-  const pendingServices = getCount(serviceQueueSummary, "status", "Pending");
-  const inProgressServices = getCount(
-    serviceQueueSummary,
-    "status",
-    "In Progress"
-  );
-  const openServiceCount = pendingServices + inProgressServices;
+  const availableRooms =
+    getCount(
+      roomStatusSummary,
+      "status",
+      "Available"
+    );
 
-  const completedServiceRevenue = serviceRevenueByType.reduce(
-    (sum: number, row: any) => sum + numberValue(row.revenue),
-    0
-  );
-  const reservationRevenue = reservationStatusSummary.reduce(
-    (sum: number, row: any) => sum + numberValue(row.totalRevenue),
-    0
-  );
+  const reservedRooms =
+    getCount(
+      roomStatusSummary,
+      "status",
+      "Reserved"
+    );
+
+  const occupiedRooms =
+    getCount(
+      roomStatusSummary,
+      "status",
+      "Occupied"
+    );
+
+  const blockedRoomCount =
+    getCount(
+      roomStatusSummary,
+      "status",
+      "Blocked"
+    );
+
+  const availabilityRate =
+    totalRooms
+      ? (
+          availableRooms /
+          totalRooms
+        ) * 100
+      : 0;
+
+  const pendingReservations =
+    getCount(
+      reservationStatusSummary,
+      "status",
+      "Pending"
+    );
+
+  const confirmedReservations =
+    getCount(
+      reservationStatusSummary,
+      "status",
+      "Confirmed"
+    );
+
+  const pendingServices =
+    getCount(
+      serviceQueueSummary,
+      "status",
+      "Pending"
+    );
+
+  const inProgressServices =
+    getCount(
+      serviceQueueSummary,
+      "status",
+      "In Progress"
+    );
+
+  const openServiceCount =
+    pendingServices +
+    inProgressServices;
+
+  const completedServiceRevenue =
+    serviceRevenueByType.reduce(
+      (sum: number, row: any) =>
+        sum +
+        numberValue(row.revenue),
+      0
+    );
+
+  const reservationRevenue =
+    reservationStatusSummary.reduce(
+      (sum: number, row: any) =>
+        sum +
+        numberValue(
+          row.totalRevenue
+        ),
+      0
+    );
 
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt:
+      new Date().toISOString(),
+
     summary: {
       totalRooms,
       availableRooms,
       reservedRooms,
       occupiedRooms,
       blockedRoomCount,
-      availabilityRate: Number(availabilityRate.toFixed(1)),
+
+      availabilityRate:
+        Number(
+          availabilityRate.toFixed(1)
+        ),
+
       pendingReservations,
       confirmedReservations,
       openServiceCount,
       pendingServices,
       inProgressServices,
-      lowFeedbackCount: lowFeedback.length,
-      reservationRevenue: Number(reservationRevenue.toFixed(2)),
-      completedServiceRevenue: Number(completedServiceRevenue.toFixed(2)),
+
+      lowFeedbackCount:
+        lowFeedback.length,
+
+      reservationRevenue:
+        Number(
+          reservationRevenue.toFixed(2)
+        ),
+
+      completedServiceRevenue:
+        Number(
+          completedServiceRevenue.toFixed(
+            2
+          )
+        ),
     },
+
     roomStatusSummary,
     roomTypePerformance,
     reservationStatusSummary,
@@ -564,8 +879,8 @@ export async function getAIActionCenter() {
 }
 
 export async function getRevenueOpportunities() {
-  const db = await getDB();
-  const snapshot = await getHotelOperationsSnapshot();
+  const snapshot =
+    await getHotelOperationsSnapshot();
 
   const [
     premiumAvailableRooms,
@@ -573,96 +888,217 @@ export async function getRevenueOpportunities() {
     upgradeCandidates,
     serviceAttachTargets,
   ] = await Promise.all([
-    db.all(`
+    queryRows(`
       SELECT
-        RoomNumber,
-        RoomType,
-        RatePerNight,
-        BuildingNumber,
-        HasBalcony,
-        HasWifi,
-        HasTv
-      FROM Room
-      WHERE AvailStatus = 'Available'
-      ORDER BY RatePerNight DESC
+        "RoomNumber",
+        "RoomType"::text
+          AS "RoomType",
+        "RatePerNight",
+        "BuildingNumber",
+        "HasBalcony",
+        "HasWifi",
+        "HasTv"
+
+      FROM "Room"
+
+      WHERE "AvailStatus"::text =
+            'Available'
+
+      ORDER BY "RatePerNight" DESC
       LIMIT 8
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        r.ReservationID,
-        r.GuestID,
-        g.FirstName,
-        g.LastName,
-        g.Email,
-        r.RoomNumber,
-        ro.RoomType,
-        r.CheckInDate,
-        r.CheckOutDate,
-        r.TotalPrice,
-        r.PaymentMode,
-        m.MembershipLevel,
-        m.PreferredRoomType,
-        m.PurposeOfVisit
-      FROM Reservation r
-      JOIN Guest g ON g.GuestID = r.GuestID
-      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
-      LEFT JOIN Membership m ON m.GuestID = g.GuestID
-      WHERE r.ReservStatus = 'Pending'
-      ORDER BY r.TotalPrice DESC
+        r."ReservationID",
+        r."GuestID",
+
+        g."FirstName",
+        g."LastName",
+        g."Email",
+
+        r."RoomNumber",
+
+        ro."RoomType"::text
+          AS "RoomType",
+
+        r."CheckInDate",
+        r."CheckOutDate",
+        r."TotalPrice",
+
+        r."PaymentMode"::text
+          AS "PaymentMode",
+
+        m."MembershipLevel"::text
+          AS "MembershipLevel",
+
+        m."PreferredRoomType"::text
+          AS "PreferredRoomType",
+
+        m."PurposeOfVisit"::text
+          AS "PurposeOfVisit"
+
+      FROM "Reservation" r
+
+      JOIN "Guest" g
+        ON g."GuestID" =
+           r."GuestID"
+
+      JOIN "Room" ro
+        ON ro."RoomNumber" =
+           r."RoomNumber"
+
+      LEFT JOIN "Membership" m
+        ON m."GuestID" =
+           g."GuestID"
+
+      WHERE r."ReservStatus"::text =
+            'Pending'
+
+      ORDER BY r."TotalPrice" DESC
       LIMIT 8
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        r.ReservationID,
-        r.GuestID,
-        g.FirstName,
-        g.LastName,
-        g.Email,
-        r.RoomNumber,
-        ro.RoomType AS CurrentRoomType,
-        ro.RatePerNight AS CurrentRate,
-        r.CheckInDate,
-        r.CheckOutDate,
-        ROUND(julianday(r.CheckOutDate) - julianday(r.CheckInDate), 1) AS StayNights,
-        r.TotalPrice,
-        m.MembershipLevel,
-        m.PreferredRoomType,
-        m.PurposeOfVisit
-      FROM Reservation r
-      JOIN Guest g ON g.GuestID = r.GuestID
-      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
-      LEFT JOIN Membership m ON m.GuestID = g.GuestID
-      WHERE r.ReservStatus IN ('Confirmed', 'Pending')
-      ORDER BY r.TotalPrice DESC
+        r."ReservationID",
+        r."GuestID",
+
+        g."FirstName",
+        g."LastName",
+        g."Email",
+
+        r."RoomNumber",
+
+        ro."RoomType"::text
+          AS "CurrentRoomType",
+
+        ro."RatePerNight"
+          AS "CurrentRate",
+
+        r."CheckInDate",
+        r."CheckOutDate",
+
+        (
+          TO_DATE(
+            r."CheckOutDate",
+            'YYYY-MM-DD'
+          ) -
+          TO_DATE(
+            r."CheckInDate",
+            'YYYY-MM-DD'
+          )
+        ) AS "StayNights",
+
+        r."TotalPrice",
+
+        m."MembershipLevel"::text
+          AS "MembershipLevel",
+
+        m."PreferredRoomType"::text
+          AS "PreferredRoomType",
+
+        m."PurposeOfVisit"::text
+          AS "PurposeOfVisit"
+
+      FROM "Reservation" r
+
+      JOIN "Guest" g
+        ON g."GuestID" =
+           r."GuestID"
+
+      JOIN "Room" ro
+        ON ro."RoomNumber" =
+           r."RoomNumber"
+
+      LEFT JOIN "Membership" m
+        ON m."GuestID" =
+           g."GuestID"
+
+      WHERE r."ReservStatus"::text
+        IN ('Confirmed', 'Pending')
+
+      ORDER BY r."TotalPrice" DESC
       LIMIT 10
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        r.ReservationID,
-        r.GuestID,
-        g.FirstName,
-        g.LastName,
-        r.RoomNumber,
-        ro.RoomType,
-        r.CheckInDate,
-        r.CheckOutDate,
-        ROUND(julianday(r.CheckOutDate) - julianday(r.CheckInDate), 1) AS StayNights,
-        r.TotalPrice,
-        m.MembershipLevel,
-        m.PurposeOfVisit,
-        COUNT(s.ServiceID) AS serviceCount
-      FROM Reservation r
-      JOIN Guest g ON g.GuestID = r.GuestID
-      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
-      LEFT JOIN Membership m ON m.GuestID = g.GuestID
-      LEFT JOIN Service s ON s.ReservationID = r.ReservationID
-      WHERE r.ReservStatus IN ('Confirmed', 'Pending')
-      GROUP BY r.ReservationID
-      HAVING COUNT(s.ServiceID) = 0
-      ORDER BY r.TotalPrice DESC
+        r."ReservationID",
+        r."GuestID",
+
+        g."FirstName",
+        g."LastName",
+
+        r."RoomNumber",
+
+        ro."RoomType"::text
+          AS "RoomType",
+
+        r."CheckInDate",
+        r."CheckOutDate",
+
+        (
+          TO_DATE(
+            r."CheckOutDate",
+            'YYYY-MM-DD'
+          ) -
+          TO_DATE(
+            r."CheckInDate",
+            'YYYY-MM-DD'
+          )
+        ) AS "StayNights",
+
+        r."TotalPrice",
+
+        m."MembershipLevel"::text
+          AS "MembershipLevel",
+
+        m."PurposeOfVisit"::text
+          AS "PurposeOfVisit",
+
+        COUNT(s."ServiceID")
+          AS "serviceCount"
+
+      FROM "Reservation" r
+
+      JOIN "Guest" g
+        ON g."GuestID" =
+           r."GuestID"
+
+      JOIN "Room" ro
+        ON ro."RoomNumber" =
+           r."RoomNumber"
+
+      LEFT JOIN "Membership" m
+        ON m."GuestID" =
+           g."GuestID"
+
+      LEFT JOIN "Service" s
+        ON s."ReservationID" =
+           r."ReservationID"
+
+      WHERE r."ReservStatus"::text
+        IN ('Confirmed', 'Pending')
+
+      GROUP BY
+        r."ReservationID",
+        r."GuestID",
+        g."FirstName",
+        g."LastName",
+        r."RoomNumber",
+        ro."RoomType",
+        r."CheckInDate",
+        r."CheckOutDate",
+        r."TotalPrice",
+        m."MembershipLevel",
+        m."PurposeOfVisit"
+
+      HAVING COUNT(
+        s."ServiceID"
+      ) = 0
+
+      ORDER BY r."TotalPrice" DESC
       LIMIT 10
     `),
   ]);
@@ -799,8 +1235,8 @@ export async function getRevenueOpportunities() {
 }
 
 export async function getOccupancyForecast() {
-  const db = await getDB();
-  const snapshot = await getHotelOperationsSnapshot();
+  const snapshot =
+    await getHotelOperationsSnapshot();
 
   const [
     arrivalPressure,
@@ -809,82 +1245,223 @@ export async function getOccupancyForecast() {
     activeReservationDetails,
     openServiceByType,
   ] = await Promise.all([
-    db.all(`
+    queryRows(`
       SELECT
-        CheckInDate,
-        COUNT(*) AS arrivalCount,
-        ROUND(SUM(TotalPrice), 2) AS arrivalRevenue,
-        SUM(CASE WHEN ReservStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingCount,
-        SUM(CASE WHEN ReservStatus = 'Confirmed' THEN 1 ELSE 0 END) AS confirmedCount
-      FROM Reservation
-      WHERE ReservStatus IN ('Confirmed', 'Pending')
-      GROUP BY CheckInDate
-      ORDER BY arrivalCount DESC, CheckInDate ASC
+        "CheckInDate",
+
+        COUNT(*) AS "arrivalCount",
+
+        SUM("TotalPrice")
+          AS "arrivalRevenue",
+
+        SUM(
+          CASE
+            WHEN "ReservStatus"::text =
+                 'Pending'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "pendingCount",
+
+        SUM(
+          CASE
+            WHEN "ReservStatus"::text =
+                 'Confirmed'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "confirmedCount"
+
+      FROM "Reservation"
+
+      WHERE "ReservStatus"::text
+        IN ('Confirmed', 'Pending')
+
+      GROUP BY "CheckInDate"
+
+      ORDER BY
+        "arrivalCount" DESC,
+        "CheckInDate" ASC
+
       LIMIT 8
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        CheckOutDate,
-        COUNT(*) AS departureCount,
-        ROUND(SUM(TotalPrice), 2) AS departingRevenue
-      FROM Reservation
-      WHERE ReservStatus IN ('Confirmed', 'Pending')
-      GROUP BY CheckOutDate
-      ORDER BY departureCount DESC, CheckOutDate ASC
+        "CheckOutDate",
+
+        COUNT(*) AS "departureCount",
+
+        SUM("TotalPrice")
+          AS "departingRevenue"
+
+      FROM "Reservation"
+
+      WHERE "ReservStatus"::text
+        IN ('Confirmed', 'Pending')
+
+      GROUP BY "CheckOutDate"
+
+      ORDER BY
+        "departureCount" DESC,
+        "CheckOutDate" ASC
+
       LIMIT 8
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        ro.RoomType,
-        COUNT(r.ReservationID) AS activeBookingCount,
-        ROUND(SUM(r.TotalPrice), 2) AS activeRevenue,
-        ROUND(AVG(julianday(r.CheckOutDate) - julianday(r.CheckInDate)), 1) AS avgStayNights,
-        SUM(CASE WHEN r.ReservStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingCount,
-        SUM(CASE WHEN r.ReservStatus = 'Confirmed' THEN 1 ELSE 0 END) AS confirmedCount,
-        SUM(CASE WHEN ro.AvailStatus = 'Available' THEN 1 ELSE 0 END) AS currentlyAvailableRooms
-      FROM Reservation r
-      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
-      WHERE r.ReservStatus IN ('Confirmed', 'Pending')
-      GROUP BY ro.RoomType
-      ORDER BY activeBookingCount DESC, activeRevenue DESC
+        ro."RoomType"::text
+          AS "RoomType",
+
+        COUNT(r."ReservationID")
+          AS "activeBookingCount",
+
+        SUM(r."TotalPrice")
+          AS "activeRevenue",
+
+        AVG(
+          (
+            TO_DATE(
+              r."CheckOutDate",
+              'YYYY-MM-DD'
+            ) -
+            TO_DATE(
+              r."CheckInDate",
+              'YYYY-MM-DD'
+            )
+          )::numeric
+        ) AS "avgStayNights",
+
+        SUM(
+          CASE
+            WHEN r."ReservStatus"::text =
+                 'Pending'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "pendingCount",
+
+        SUM(
+          CASE
+            WHEN r."ReservStatus"::text =
+                 'Confirmed'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "confirmedCount",
+
+        SUM(
+          CASE
+            WHEN ro."AvailStatus"::text =
+                 'Available'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "currentlyAvailableRooms"
+
+      FROM "Reservation" r
+
+      JOIN "Room" ro
+        ON ro."RoomNumber" =
+           r."RoomNumber"
+
+      WHERE r."ReservStatus"::text
+        IN ('Confirmed', 'Pending')
+
+      GROUP BY ro."RoomType"
+
+      ORDER BY
+        "activeBookingCount" DESC,
+        "activeRevenue" DESC
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        r.ReservationID,
-        r.GuestID,
-        g.FirstName,
-        g.LastName,
-        r.RoomNumber,
-        ro.RoomType,
-        r.CheckInDate,
-        r.CheckOutDate,
-        ROUND(julianday(r.CheckOutDate) - julianday(r.CheckInDate), 1) AS StayNights,
-        r.TotalPrice,
-        r.ReservStatus,
-        r.SpecialRequest,
-        m.MembershipLevel,
-        m.PurposeOfVisit
-      FROM Reservation r
-      JOIN Guest g ON g.GuestID = r.GuestID
-      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
-      LEFT JOIN Membership m ON m.GuestID = g.GuestID
-      WHERE r.ReservStatus IN ('Confirmed', 'Pending')
-      ORDER BY r.CheckInDate ASC, r.TotalPrice DESC
+        r."ReservationID",
+        r."GuestID",
+
+        g."FirstName",
+        g."LastName",
+
+        r."RoomNumber",
+
+        ro."RoomType"::text
+          AS "RoomType",
+
+        r."CheckInDate",
+        r."CheckOutDate",
+
+        (
+          TO_DATE(
+            r."CheckOutDate",
+            'YYYY-MM-DD'
+          ) -
+          TO_DATE(
+            r."CheckInDate",
+            'YYYY-MM-DD'
+          )
+        ) AS "StayNights",
+
+        r."TotalPrice",
+
+        r."ReservStatus"::text
+          AS "ReservStatus",
+
+        r."SpecialRequest",
+
+        m."MembershipLevel"::text
+          AS "MembershipLevel",
+
+        m."PurposeOfVisit"::text
+          AS "PurposeOfVisit"
+
+      FROM "Reservation" r
+
+      JOIN "Guest" g
+        ON g."GuestID" =
+           r."GuestID"
+
+      JOIN "Room" ro
+        ON ro."RoomNumber" =
+           r."RoomNumber"
+
+      LEFT JOIN "Membership" m
+        ON m."GuestID" =
+           g."GuestID"
+
+      WHERE r."ReservStatus"::text
+        IN ('Confirmed', 'Pending')
+
+      ORDER BY
+        r."CheckInDate" ASC,
+        r."TotalPrice" DESC
+
       LIMIT 12
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        ServiceType,
-        RequestStatus,
+        "ServiceType"::text
+          AS "ServiceType",
+
+        "RequestStatus"::text
+          AS "RequestStatus",
+
         COUNT(*) AS count,
-        ROUND(SUM(ServicePrice), 2) AS totalValue
-      FROM Service
-      WHERE RequestStatus IN ('Pending', 'In Progress')
-      GROUP BY ServiceType, RequestStatus
+
+        SUM("ServicePrice")
+          AS "totalValue"
+
+      FROM "Service"
+
+      WHERE "RequestStatus"::text
+        IN ('Pending', 'In Progress')
+
+      GROUP BY
+        "ServiceType",
+        "RequestStatus"
+
       ORDER BY count DESC
     `),
   ]);

@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoomType {
+  KING       @map("King")
+  QUEEN      @map("Queen")
+  DELUXE     @map("Deluxe")
+  ACCESSIBLE @map("Accessible")
+}
+
+enum RoomAvailability {
+  AVAILABLE @map("Available")
+  RESERVED  @map("Reserved")
+  OCCUPIED  @map("Occupied")
+  BLOCKED   @map("Blocked")
+}
+
+enum MembershipLevel {
+  BRONZE   @map("Bronze")
+  SILVER   @map("Silver")
+  GOLD     @map("Gold")
+  PLATINUM @map("Platinum")
+}
+
+enum PurposeOfVisit {
+  BUSINESS           @map("Business")
+  LEISURE            @map("Leisure")
+  TRAVEL             @map("Travel")
+  NEARBY_ATTRACTIONS @map("Nearby Attractions")
+  SOCIAL_GATHERING   @map("Social Gathering")
+}
+
+enum CardType {
+  VISA          @map("Visa")
+  MASTERCARD    @map("MasterCard")
+  AMEX          @map("Amex")
+  DISCOVER      @map("Discover")
+  CASH          @map("Cash")
+  BANK_TRANSFER @map("Bank Transfer")
+}
+
+enum ReservationStatus {
+  CONFIRMED @map("Confirmed")
+  PENDING   @map("Pending")
+  CANCELLED @map("Cancelled")
+  COMPLETED @map("Completed")
+  NO_SHOW   @map("No-Show")
+}
+
+enum PaymentMode {
+  CREDIT_CARD   @map("Credit Card")
+  DEBIT_CARD    @map("Debit Card")
+  CASH          @map("Cash")
+  BANK_TRANSFER @map("Bank Transfer")
+  AMEX          @map("Amex")
+}
+
+enum ServiceType {
+  ROOM_SERVICE @map("Room Service")
+  SPA          @map("Spa")
+  SHUTTLE      @map("Shuttle")
+}
+
+enum ServiceRequestStatus {
+  PENDING     @map("Pending")
+  IN_PROGRESS @map("In Progress")
+  COMPLETED   @map("Completed")
+  CANCELLED   @map("Cancelled")
+}
+
+enum BillingPaymentStatus {
+  CHECKOUT_CREATED @map("checkout_created")
+  PAID             @map("paid")
+  REFUNDED         @map("refunded")
+  CANCELLED        @map("cancelled")
+}
+
+enum BillingMode {
+  STRIPE     @map("stripe")
+  SIMULATION @map("simulation")
+}
+
+model Employee {
+  employeeId  Int       @id @map("EmployeeID")
+  firstName   String    @map("FirstName")
+  lastName    String    @map("LastName")
+  dateOfBirth String    @map("DateOfBirth")
+  ssn         String    @unique @map("SSN")
+  salary      Float     @map("Salary")
+  position    String    @map("Position")
+  hoursWorked Float     @default(0) @map("HoursWorked")
+  services    Service[]
+
+  userAccount UserAccount?
+
+  @@map("Employee")
+}
+
+model UserAccount {
+  userId       Int      @id @default(autoincrement()) @map("UserID")
+  employeeId   Int      @unique @map("EmployeeID")
+  username     String   @unique @map("Username")
+  passwordHash String   @map("PasswordHash")
+  isActive     Boolean  @default(true) @map("IsActive")
+  createdAt    DateTime @default(now()) @map("CreatedAt")
+
+  employee Employee @relation(fields: [employeeId], references: [employeeId])
+
+  @@map("UserAccount")
+}
+
+model Guest {
+  guestId     Int    @id @map("GuestID")
+  firstName   String @map("FirstName")
+  lastName    String @map("LastName")
+  dateOfBirth String @map("DateOfBirth")
+  phoneNumber String @unique @map("PhoneNumber")
+  email       String @unique @map("Email")
+
+  membership        Membership?
+  paymentInfo       PaymentInfo[]
+  reservations      Reservation[]
+  reservationGuests ReservationGuest[]
+
+  @@map("Guest")
+}
+
+model Membership {
+  membershipId      Int             @id @map("MembershipID")
+  guestId           Int             @unique @map("GuestID")
+  membershipLevel   MembershipLevel @map("MembershipLevel")
+  preferredRoomType RoomType?       @map("PreferredRoomType")
+  purposeOfVisit    PurposeOfVisit? @map("PurposeOfVisit")
+
+  guest Guest @relation(fields: [guestId], references: [guestId])
+
+  @@map("Membership")
+}
+
+model PaymentInfo {
+  paymentId      Int      @id @map("PaymentID")
+  guestId        Int      @map("GuestID")
+  cardType       CardType @map("CardType")
+  cardLastFour   String?  @map("CardLastFour")
+  billingAddress String?  @map("BillingAddress")
+
+  guest Guest @relation(fields: [guestId], references: [guestId])
+
+  @@map("PaymentInfo")
+}
+
+model Room {
+  roomNumber     Int              @id @map("RoomNumber")
+  roomType       RoomType         @map("RoomType")
+  ratePerNight   Float            @map("RatePerNight")
+  availStatus    RoomAvailability @map("AvailStatus")
+  maxOccupancy   Int              @map("MaxOccupancy")
+  hasBalcony     String           @default("N") @map("HasBalcony")
+  isSmoking      String           @default("N") @map("IsSmoking")
+  bedCount       Int              @map("BedCount")
+  buildingNumber Int              @map("BuildingNumber")
+  hasWifi        String           @default("Y") @map("HasWifi")
+  hasTv          String           @default("Y") @map("HasTv")
+  roomServices   RoomService[]
+
+  reservations Reservation[]
+
+  @@map("Room")
+}
+
+model Reservation {
+  reservationId       BigInt               @id @map("ReservationID")
+  guestId             Int                  @map("GuestID")
+  roomNumber          Int                  @map("RoomNumber")
+  checkInDate         String               @map("CheckInDate")
+  checkInTime         String               @default("15:00") @map("CheckInTime")
+  checkOutDate        String               @map("CheckOutDate")
+  totalPrice          Float                @map("TotalPrice")
+  reservStatus        ReservationStatus    @map("ReservStatus")
+  specialRequest      String?              @map("SpecialRequest")
+  paymentMode         PaymentMode          @map("PaymentMode")
+  services            Service[]
+  feedback            Feedback[]
+  billingTransactions BillingTransaction[]
+
+  guest Guest @relation(fields: [guestId], references: [guestId])
+  room  Room  @relation(fields: [roomNumber], references: [roomNumber])
+
+  reservationGuests ReservationGuest[]
+
+  @@index([roomNumber, checkInDate, checkOutDate])
+  @@index([guestId])
+  @@map("Reservation")
+}
+
+model ReservationGuest {
+  reservationId BigInt @map("ReservationID")
+  guestId       Int    @map("GuestID")
+
+  reservation Reservation @relation(fields: [reservationId], references: [reservationId])
+  guest       Guest       @relation(fields: [guestId], references: [guestId])
+
+  @@id([reservationId, guestId])
+  @@map("ReservationGuest")
+}
+
+model Service {
+  serviceId     Int                  @id @map("ServiceID")
+  reservationId BigInt               @map("ReservationID")
+  serviceType   ServiceType          @map("ServiceType")
+  requestTime   DateTime             @default(now()) @map("RequestTime")
+  requestStatus ServiceRequestStatus @map("RequestStatus")
+  servicePrice  Float                @map("ServicePrice")
+  employeeId    Int?                 @map("EmployeeID")
+
+  reservation Reservation @relation(fields: [reservationId], references: [reservationId])
+  employee    Employee?   @relation(fields: [employeeId], references: [employeeId])
+
+  roomService    RoomService?
+  spaService     SpaService?
+  shuttleService ShuttleService?
+
+  @@index([reservationId])
+  @@map("Service")
+}
+
+model RoomService {
+  serviceId       Int     @id @map("ServiceID")
+  roomNumber      Int     @map("RoomNumber")
+  itemDescription String? @map("ItemDescription")
+
+  service Service @relation(fields: [serviceId], references: [serviceId])
+  room    Room    @relation(fields: [roomNumber], references: [roomNumber])
+
+  @@index([roomNumber])
+  @@map("RoomService")
+}
+
+model SpaService {
+  serviceId       Int    @id @map("ServiceID")
+  spaServiceType  String @map("SpaServiceType")
+  durationMinutes Int?   @map("DurationMinutes")
+
+  service Service @relation(fields: [serviceId], references: [serviceId])
+
+  @@map("SpaService")
+}
+
+model ShuttleService {
+  serviceId            Int     @id @map("ServiceID")
+  pickupTime           String  @map("PickupTime")
+  dropoffTime          String? @map("DropoffTime")
+  arrivalDestination   String  @map("ArrivalDestination")
+  departureDestination String  @map("DepartureDestination")
+  numberOfPeople       Int     @map("NumberOfPeople")
+
+  service Service @relation(fields: [serviceId], references: [serviceId])
+
+  @@map("ShuttleService")
+}
+
+model Feedback {
+  feedbackId      Int      @id @map("FeedbackID")
+  reservationId   BigInt   @map("ReservationID")
+  roomRating      Int?     @map("RoomRating")
+  breakfastRating Int?     @map("BreakfastRating")
+  safetyRating    Int?     @map("SafetyRating")
+  custSvcRating   Int?     @map("CustSvcRating")
+  comments        String?  @map("Comments")
+  submissionDate  DateTime @default(now()) @map("SubmissionDate")
+
+  reservation Reservation @relation(fields: [reservationId], references: [reservationId])
+
+  @@index([reservationId])
+  @@map("Feedback")
+}
+
+model BillingTransaction {
+  billingTransactionId Int                  @id @default(autoincrement()) @map("BillingTransactionID")
+  reservationId        BigInt               @map("ReservationID")
+  stripeSessionId      String?              @map("StripeSessionID")
+  checkoutUrl          String?              @map("CheckoutURL")
+  amountCents          Int                  @map("AmountCents")
+  currency             String               @default("usd") @map("Currency")
+  paymentStatus        BillingPaymentStatus @default(CHECKOUT_CREATED) @map("PaymentStatus")
+  billingMode          BillingMode          @default(SIMULATION) @map("BillingMode")
+  createdAt            DateTime             @default(now()) @map("CreatedAt")
+  paidAt               DateTime?            @map("PaidAt")
+  refundedAt           DateTime?            @map("RefundedAt")
+  lastSyncedAt         DateTime?            @map("LastSyncedAt")
+  stripePaymentStatus  String?              @map("StripePaymentStatus")
+  stripeSessionStatus  String?              @map("StripeSessionStatus")
+
+  reservation Reservation @relation(fields: [reservationId], references: [reservationId])
+
+  @@index([reservationId])
+  @@index([stripeSessionId])
+  @@map("BillingTransaction")
+}

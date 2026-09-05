@@ -1,7 +1,57 @@
-import { getDB } from "../db";
+import { prisma } from "../prismaClient";
 import { askOpenAI } from "./openaiService";
 
 type QualityRisk = "High" | "Medium" | "Low";
+
+function normalizeBigInts<T>(value: T): T {
+  if (typeof value === "bigint") {
+    return Number(value) as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      normalizeBigInts(item)
+    ) as T;
+  }
+
+  if (
+    value &&
+    typeof value === "object"
+  ) {
+    const output: any = {};
+
+    for (const [key, item] of Object.entries(
+      value as any
+    )) {
+      output[key] =
+        normalizeBigInts(item);
+    }
+
+    return output;
+  }
+
+  return value;
+}
+
+async function queryRows(
+  sql: string
+): Promise<any[]> {
+  const result =
+    await prisma.$queryRawUnsafe<any[]>(
+      sql
+    );
+
+  return normalizeBigInts(result);
+}
+
+async function queryOne(
+  sql: string
+): Promise<any> {
+  const rows =
+    await queryRows(sql);
+
+  return rows[0] ?? null;
+}
 
 function numberValue(value: unknown) {
   const parsed = Number(value || 0);
@@ -25,8 +75,6 @@ function priorityLabel(risk: QualityRisk) {
 }
 
 export async function getQualityEngine() {
-  const db = await getDB();
-
   const [
     feedbackSummary,
     feedbackCases,
@@ -35,217 +83,474 @@ export async function getQualityEngine() {
     complaintPatterns,
     topRecoveryGuests,
   ] = await Promise.all([
-    db.get(`
+    queryOne(`
       SELECT
-        COUNT(*) AS feedbackCount,
-        ROUND(AVG(
-          (
-            COALESCE(RoomRating, 0) +
-            COALESCE(BreakfastRating, 0) +
-            COALESCE(SafetyRating, 0) +
-            COALESCE(CustSvcRating, 0)
-          ) / 4.0
-        ), 2) AS avgOverallRating,
-        ROUND(AVG(RoomRating), 2) AS avgRoomRating,
-        ROUND(AVG(BreakfastRating), 2) AS avgBreakfastRating,
-        ROUND(AVG(SafetyRating), 2) AS avgSafetyRating,
-        ROUND(AVG(CustSvcRating), 2) AS avgCustSvcRating,
+        COUNT(*) AS "feedbackCount",
+
+        ROUND(
+          AVG(
+            (
+              COALESCE("RoomRating", 0) +
+              COALESCE("BreakfastRating", 0) +
+              COALESCE("SafetyRating", 0) +
+              COALESCE("CustSvcRating", 0)
+            ) / 4.0
+          )::numeric,
+          2
+        ) AS "avgOverallRating",
+
+        ROUND(
+          AVG("RoomRating")::numeric,
+          2
+        ) AS "avgRoomRating",
+
+        ROUND(
+          AVG("BreakfastRating")::numeric,
+          2
+        ) AS "avgBreakfastRating",
+
+        ROUND(
+          AVG("SafetyRating")::numeric,
+          2
+        ) AS "avgSafetyRating",
+
+        ROUND(
+          AVG("CustSvcRating")::numeric,
+          2
+        ) AS "avgCustSvcRating",
+
         SUM(
           CASE
             WHEN (
               (
-                COALESCE(RoomRating, 0) +
-                COALESCE(BreakfastRating, 0) +
-                COALESCE(SafetyRating, 0) +
-                COALESCE(CustSvcRating, 0)
+                COALESCE("RoomRating", 0) +
+                COALESCE("BreakfastRating", 0) +
+                COALESCE("SafetyRating", 0) +
+                COALESCE("CustSvcRating", 0)
               ) / 4.0
-            ) <= 3.6 THEN 1
+            ) <= 3.6
+            THEN 1
             ELSE 0
           END
-        ) AS lowRatingCount
-      FROM Feedback
+        ) AS "lowRatingCount"
+
+      FROM "Feedback"
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        f.FeedbackID,
-        f.ReservationID,
-        g.GuestID,
-        g.FirstName,
-        g.LastName,
-        g.Email,
-        m.MembershipLevel,
-        r.RoomNumber,
-        ro.RoomType,
-        r.CheckInDate,
-        r.CheckOutDate,
-        r.TotalPrice,
-        f.RoomRating,
-        f.BreakfastRating,
-        f.SafetyRating,
-        f.CustSvcRating,
+        f."FeedbackID",
+        f."ReservationID",
+
+        g."GuestID",
+        g."FirstName",
+        g."LastName",
+        g."Email",
+
+        m."MembershipLevel"::text
+          AS "MembershipLevel",
+
+        r."RoomNumber",
+
+        ro."RoomType"::text
+          AS "RoomType",
+
+        r."CheckInDate",
+        r."CheckOutDate",
+        r."TotalPrice",
+
+        f."RoomRating",
+        f."BreakfastRating",
+        f."SafetyRating",
+        f."CustSvcRating",
+
         ROUND(
           (
-            COALESCE(f.RoomRating, 0) +
-            COALESCE(f.BreakfastRating, 0) +
-            COALESCE(f.SafetyRating, 0) +
-            COALESCE(f.CustSvcRating, 0)
-          ) / 4.0,
+            (
+              COALESCE(f."RoomRating", 0) +
+              COALESCE(f."BreakfastRating", 0) +
+              COALESCE(f."SafetyRating", 0) +
+              COALESCE(f."CustSvcRating", 0)
+            ) / 4.0
+          )::numeric,
           2
-        ) AS AvgRating,
+        ) AS "AvgRating",
+
         CASE
-          WHEN COALESCE(f.RoomRating, 5) <= COALESCE(f.BreakfastRating, 5)
-           AND COALESCE(f.RoomRating, 5) <= COALESCE(f.SafetyRating, 5)
-           AND COALESCE(f.RoomRating, 5) <= COALESCE(f.CustSvcRating, 5)
-            THEN 'Room'
-          WHEN COALESCE(f.BreakfastRating, 5) <= COALESCE(f.RoomRating, 5)
-           AND COALESCE(f.BreakfastRating, 5) <= COALESCE(f.SafetyRating, 5)
-           AND COALESCE(f.BreakfastRating, 5) <= COALESCE(f.CustSvcRating, 5)
-            THEN 'Breakfast'
-          WHEN COALESCE(f.SafetyRating, 5) <= COALESCE(f.RoomRating, 5)
-           AND COALESCE(f.SafetyRating, 5) <= COALESCE(f.BreakfastRating, 5)
-           AND COALESCE(f.SafetyRating, 5) <= COALESCE(f.CustSvcRating, 5)
-            THEN 'Safety'
+          WHEN COALESCE(f."RoomRating", 5)
+            <= COALESCE(f."BreakfastRating", 5)
+
+           AND COALESCE(f."RoomRating", 5)
+            <= COALESCE(f."SafetyRating", 5)
+
+           AND COALESCE(f."RoomRating", 5)
+            <= COALESCE(f."CustSvcRating", 5)
+
+          THEN 'Room'
+
+          WHEN COALESCE(f."BreakfastRating", 5)
+            <= COALESCE(f."RoomRating", 5)
+
+           AND COALESCE(f."BreakfastRating", 5)
+            <= COALESCE(f."SafetyRating", 5)
+
+           AND COALESCE(f."BreakfastRating", 5)
+            <= COALESCE(f."CustSvcRating", 5)
+
+          THEN 'Breakfast'
+
+          WHEN COALESCE(f."SafetyRating", 5)
+            <= COALESCE(f."RoomRating", 5)
+
+           AND COALESCE(f."SafetyRating", 5)
+            <= COALESCE(f."BreakfastRating", 5)
+
+           AND COALESCE(f."SafetyRating", 5)
+            <= COALESCE(f."CustSvcRating", 5)
+
+          THEN 'Safety'
+
           ELSE 'Customer Service'
-        END AS WeakestCategory,
-        f.Comments,
-        f.SubmissionDate
-      FROM Feedback f
-      JOIN Reservation r ON r.ReservationID = f.ReservationID
-      JOIN Guest g ON g.GuestID = r.GuestID
-      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
-      LEFT JOIN Membership m ON m.GuestID = g.GuestID
+        END AS "WeakestCategory",
+
+        f."Comments",
+        f."SubmissionDate"
+
+      FROM "Feedback" f
+
+      JOIN "Reservation" r
+        ON r."ReservationID" =
+           f."ReservationID"
+
+      JOIN "Guest" g
+        ON g."GuestID" =
+           r."GuestID"
+
+      JOIN "Room" ro
+        ON ro."RoomNumber" =
+           r."RoomNumber"
+
+      LEFT JOIN "Membership" m
+        ON m."GuestID" =
+           g."GuestID"
+
       WHERE
         (
           (
-            COALESCE(f.RoomRating, 0) +
-            COALESCE(f.BreakfastRating, 0) +
-            COALESCE(f.SafetyRating, 0) +
-            COALESCE(f.CustSvcRating, 0)
+            COALESCE(f."RoomRating", 0) +
+            COALESCE(f."BreakfastRating", 0) +
+            COALESCE(f."SafetyRating", 0) +
+            COALESCE(f."CustSvcRating", 0)
           ) / 4.0
         ) <= 4.0
-        OR LOWER(COALESCE(f.Comments, '')) LIKE '%slow%'
-        OR LOWER(COALESCE(f.Comments, '')) LIKE '%noisy%'
-        OR LOWER(COALESCE(f.Comments, '')) LIKE '%average%'
-        OR LOWER(COALESCE(f.Comments, '')) LIKE '%pressure%'
-        OR LOWER(COALESCE(f.Comments, '')) LIKE '%small%'
-      ORDER BY AvgRating ASC, f.SubmissionDate DESC
+
+        OR LOWER(
+          COALESCE(f."Comments", '')
+        ) LIKE '%slow%'
+
+        OR LOWER(
+          COALESCE(f."Comments", '')
+        ) LIKE '%noisy%'
+
+        OR LOWER(
+          COALESCE(f."Comments", '')
+        ) LIKE '%average%'
+
+        OR LOWER(
+          COALESCE(f."Comments", '')
+        ) LIKE '%pressure%'
+
+        OR LOWER(
+          COALESCE(f."Comments", '')
+        ) LIKE '%small%'
+
+      ORDER BY
+        "AvgRating" ASC,
+        f."SubmissionDate" DESC
+
       LIMIT 12
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        ro.RoomType,
-        COUNT(f.FeedbackID) AS feedbackCount,
-        ROUND(AVG(
-          (
-            COALESCE(f.RoomRating, 0) +
-            COALESCE(f.BreakfastRating, 0) +
-            COALESCE(f.SafetyRating, 0) +
-            COALESCE(f.CustSvcRating, 0)
-          ) / 4.0
-        ), 2) AS avgOverallRating,
-        ROUND(AVG(f.RoomRating), 2) AS avgRoomRating,
-        ROUND(AVG(f.BreakfastRating), 2) AS avgBreakfastRating,
-        ROUND(AVG(f.SafetyRating), 2) AS avgSafetyRating,
-        ROUND(AVG(f.CustSvcRating), 2) AS avgCustSvcRating,
+        ro."RoomType"::text
+          AS "RoomType",
+
+        COUNT(f."FeedbackID")
+          AS "feedbackCount",
+
+        ROUND(
+          AVG(
+            (
+              COALESCE(f."RoomRating", 0) +
+              COALESCE(f."BreakfastRating", 0) +
+              COALESCE(f."SafetyRating", 0) +
+              COALESCE(f."CustSvcRating", 0)
+            ) / 4.0
+          )::numeric,
+          2
+        ) AS "avgOverallRating",
+
+        ROUND(
+          AVG(f."RoomRating")::numeric,
+          2
+        ) AS "avgRoomRating",
+
+        ROUND(
+          AVG(f."BreakfastRating")::numeric,
+          2
+        ) AS "avgBreakfastRating",
+
+        ROUND(
+          AVG(f."SafetyRating")::numeric,
+          2
+        ) AS "avgSafetyRating",
+
+        ROUND(
+          AVG(f."CustSvcRating")::numeric,
+          2
+        ) AS "avgCustSvcRating",
+
         SUM(
           CASE
             WHEN (
               (
-                COALESCE(f.RoomRating, 0) +
-                COALESCE(f.BreakfastRating, 0) +
-                COALESCE(f.SafetyRating, 0) +
-                COALESCE(f.CustSvcRating, 0)
+                COALESCE(f."RoomRating", 0) +
+                COALESCE(f."BreakfastRating", 0) +
+                COALESCE(f."SafetyRating", 0) +
+                COALESCE(f."CustSvcRating", 0)
               ) / 4.0
-            ) <= 3.6 THEN 1
+            ) <= 3.6
+            THEN 1
             ELSE 0
           END
-        ) AS lowRatingCount
-      FROM Feedback f
-      JOIN Reservation r ON r.ReservationID = f.ReservationID
-      JOIN Room ro ON ro.RoomNumber = r.RoomNumber
-      GROUP BY ro.RoomType
-      ORDER BY avgOverallRating ASC, lowRatingCount DESC
+        ) AS "lowRatingCount"
+
+      FROM "Feedback" f
+
+      JOIN "Reservation" r
+        ON r."ReservationID" =
+           f."ReservationID"
+
+      JOIN "Room" ro
+        ON ro."RoomNumber" =
+           r."RoomNumber"
+
+      GROUP BY ro."RoomType"
+
+      ORDER BY
+        "avgOverallRating" ASC,
+        "lowRatingCount" DESC
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        s.ServiceType,
-        COUNT(DISTINCT s.ServiceID) AS serviceCount,
-        COUNT(DISTINCT f.FeedbackID) AS feedbackCount,
-        ROUND(SUM(s.ServicePrice), 2) AS serviceRevenue,
-        ROUND(AVG(
-          (
-            COALESCE(f.RoomRating, 0) +
-            COALESCE(f.BreakfastRating, 0) +
-            COALESCE(f.SafetyRating, 0) +
-            COALESCE(f.CustSvcRating, 0)
-          ) / 4.0
-        ), 2) AS avgFeedbackRating,
+        s."ServiceType"::text
+          AS "ServiceType",
+
+        COUNT(
+          DISTINCT s."ServiceID"
+        ) AS "serviceCount",
+
+        COUNT(
+          DISTINCT f."FeedbackID"
+        ) AS "feedbackCount",
+
+        ROUND(
+          SUM(s."ServicePrice")::numeric,
+          2
+        ) AS "serviceRevenue",
+
+        ROUND(
+          AVG(
+            (
+              COALESCE(f."RoomRating", 0) +
+              COALESCE(f."BreakfastRating", 0) +
+              COALESCE(f."SafetyRating", 0) +
+              COALESCE(f."CustSvcRating", 0)
+            ) / 4.0
+          )::numeric,
+          2
+        ) AS "avgFeedbackRating",
+
         SUM(
           CASE
-            WHEN LOWER(COALESCE(f.Comments, '')) LIKE '%slow%' THEN 1
+            WHEN LOWER(
+              COALESCE(f."Comments", '')
+            ) LIKE '%slow%'
+            THEN 1
             ELSE 0
           END
-        ) AS slowMentions,
+        ) AS "slowMentions",
+
         SUM(
           CASE
-            WHEN LOWER(COALESCE(f.Comments, '')) LIKE '%average%' THEN 1
+            WHEN LOWER(
+              COALESCE(f."Comments", '')
+            ) LIKE '%average%'
+            THEN 1
             ELSE 0
           END
-        ) AS averageMentions
-      FROM Service s
-      JOIN Reservation r ON r.ReservationID = s.ReservationID
-      LEFT JOIN Feedback f ON f.ReservationID = r.ReservationID
-      WHERE s.RequestStatus = 'Completed'
-      GROUP BY s.ServiceType
-      ORDER BY avgFeedbackRating ASC, slowMentions DESC
+        ) AS "averageMentions"
+
+      FROM "Service" s
+
+      JOIN "Reservation" r
+        ON r."ReservationID" =
+           s."ReservationID"
+
+      LEFT JOIN "Feedback" f
+        ON f."ReservationID" =
+           r."ReservationID"
+
+      WHERE s."RequestStatus"::text =
+            'Completed'
+
+      GROUP BY s."ServiceType"
+
+      ORDER BY
+        "avgFeedbackRating" ASC,
+        "slowMentions" DESC
     `),
 
-    db.get(`
+    queryOne(`
       SELECT
-        SUM(CASE WHEN LOWER(COALESCE(Comments, '')) LIKE '%slow%' THEN 1 ELSE 0 END) AS slowMentions,
-        SUM(CASE WHEN LOWER(COALESCE(Comments, '')) LIKE '%noisy%' THEN 1 ELSE 0 END) AS noisyMentions,
-        SUM(CASE WHEN LOWER(COALESCE(Comments, '')) LIKE '%average%' THEN 1 ELSE 0 END) AS averageMentions,
-        SUM(CASE WHEN LOWER(COALESCE(Comments, '')) LIKE '%breakfast%' THEN 1 ELSE 0 END) AS breakfastMentions,
-        SUM(CASE WHEN LOWER(COALESCE(Comments, '')) LIKE '%service%' THEN 1 ELSE 0 END) AS serviceMentions,
-        SUM(CASE WHEN LOWER(COALESCE(Comments, '')) LIKE '%small%' THEN 1 ELSE 0 END) AS roomSizeMentions
-      FROM Feedback
+        SUM(
+          CASE
+            WHEN LOWER(
+              COALESCE("Comments", '')
+            ) LIKE '%slow%'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "slowMentions",
+
+        SUM(
+          CASE
+            WHEN LOWER(
+              COALESCE("Comments", '')
+            ) LIKE '%noisy%'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "noisyMentions",
+
+        SUM(
+          CASE
+            WHEN LOWER(
+              COALESCE("Comments", '')
+            ) LIKE '%average%'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "averageMentions",
+
+        SUM(
+          CASE
+            WHEN LOWER(
+              COALESCE("Comments", '')
+            ) LIKE '%breakfast%'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "breakfastMentions",
+
+        SUM(
+          CASE
+            WHEN LOWER(
+              COALESCE("Comments", '')
+            ) LIKE '%service%'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "serviceMentions",
+
+        SUM(
+          CASE
+            WHEN LOWER(
+              COALESCE("Comments", '')
+            ) LIKE '%small%'
+            THEN 1
+            ELSE 0
+          END
+        ) AS "roomSizeMentions"
+
+      FROM "Feedback"
     `),
 
-    db.all(`
+    queryRows(`
       SELECT
-        g.GuestID,
-        g.FirstName,
-        g.LastName,
-        g.Email,
-        m.MembershipLevel,
-        COUNT(r.ReservationID) AS reservationCount,
-        ROUND(SUM(r.TotalPrice), 2) AS totalSpent,
-        ROUND(AVG(
-          (
-            COALESCE(f.RoomRating, 0) +
-            COALESCE(f.BreakfastRating, 0) +
-            COALESCE(f.SafetyRating, 0) +
-            COALESCE(f.CustSvcRating, 0)
-          ) / 4.0
-        ), 2) AS avgFeedbackRating,
+        g."GuestID",
+        g."FirstName",
+        g."LastName",
+        g."Email",
+
+        m."MembershipLevel"::text
+          AS "MembershipLevel",
+
+        COUNT(r."ReservationID")
+          AS "reservationCount",
+
+        ROUND(
+          SUM(r."TotalPrice")::numeric,
+          2
+        ) AS "totalSpent",
+
+        ROUND(
+          AVG(
+            (
+              COALESCE(f."RoomRating", 0) +
+              COALESCE(f."BreakfastRating", 0) +
+              COALESCE(f."SafetyRating", 0) +
+              COALESCE(f."CustSvcRating", 0)
+            ) / 4.0
+          )::numeric,
+          2
+        ) AS "avgFeedbackRating",
+
         MIN(
           (
-            COALESCE(f.RoomRating, 0) +
-            COALESCE(f.BreakfastRating, 0) +
-            COALESCE(f.SafetyRating, 0) +
-            COALESCE(f.CustSvcRating, 0)
+            COALESCE(f."RoomRating", 0) +
+            COALESCE(f."BreakfastRating", 0) +
+            COALESCE(f."SafetyRating", 0) +
+            COALESCE(f."CustSvcRating", 0)
           ) / 4.0
-        ) AS lowestFeedbackRating
-      FROM Guest g
-      JOIN Reservation r ON r.GuestID = g.GuestID
-      JOIN Feedback f ON f.ReservationID = r.ReservationID
-      LEFT JOIN Membership m ON m.GuestID = g.GuestID
-      GROUP BY g.GuestID
-      HAVING lowestFeedbackRating <= 4.0
-      ORDER BY totalSpent DESC, lowestFeedbackRating ASC
+        ) AS "lowestFeedbackRating"
+
+      FROM "Guest" g
+
+      JOIN "Reservation" r
+        ON r."GuestID" =
+           g."GuestID"
+
+      JOIN "Feedback" f
+        ON f."ReservationID" =
+           r."ReservationID"
+
+      LEFT JOIN "Membership" m
+        ON m."GuestID" =
+           g."GuestID"
+
+      GROUP BY
+        g."GuestID",
+        g."FirstName",
+        g."LastName",
+        g."Email",
+        m."MembershipLevel"
+
+      HAVING MIN(
+        (
+          COALESCE(f."RoomRating", 0) +
+          COALESCE(f."BreakfastRating", 0) +
+          COALESCE(f."SafetyRating", 0) +
+          COALESCE(f."CustSvcRating", 0)
+        ) / 4.0
+      ) <= 4.0
+
+      ORDER BY
+        "totalSpent" DESC,
+        "lowestFeedbackRating" ASC
+
       LIMIT 8
     `),
   ]);

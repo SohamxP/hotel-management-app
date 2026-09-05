@@ -8,3 +8,6 @@ build/
 .DS_Store
 backend/database/*.db
 backend/database/*.sqlite.env
+database/test-hotel.db
+database/test-hotel.db-shm
+database/test-hotel.db-wal

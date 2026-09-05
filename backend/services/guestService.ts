@@ -1,4 +1,5 @@
 import * as guestRepository from "../repositories/guestRepository";
+import { AppError } from "../errors/AppError";
 
 const MEMBERSHIP_LEVELS = ["Bronze", "Silver", "Gold", "Platinum"];
 
@@ -39,12 +40,16 @@ function clean(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function requireEnum(value: string, allowed: string[], fieldName: string) {
+function requireEnum(
+  value: string,
+  allowed: string[],
+  fieldName: string
+) {
   if (!allowed.includes(value)) {
-    throw {
-      status: 400,
-      message: `${fieldName} must be one of: ${allowed.join(", ")}`,
-    };
+    throw new AppError(
+      400,
+      `${fieldName} must be one of: ${allowed.join(", ")}`
+    );
   }
 }
 
@@ -54,19 +59,13 @@ export async function getAllGuests() {
 
 export async function getGuestById(guestId: number) {
   if (!guestId) {
-    throw {
-      status: 400,
-      message: "Guest ID is required",
-    };
+    throw new AppError(400, "Guest ID is required");
   }
 
   const guest = await guestRepository.findGuestById(guestId);
 
   if (!guest) {
-    throw {
-      status: 404,
-      message: "Guest not found",
-    };
+    throw new AppError(404, "Guest not found");
   }
 
   return guest;
@@ -85,61 +84,79 @@ export async function createGuest(input: CreateGuestInput) {
   const cardLastFour = clean(input.cardLastFour) || null;
   const billingAddress = clean(input.billingAddress) || null;
 
-  if (!firstName || !lastName || !dateOfBirth || !phoneNumber || !email) {
-    throw {
-      status: 400,
-      message:
-        "firstName, lastName, dateOfBirth, phoneNumber, and email are required",
-    };
+  if (
+    !firstName ||
+    !lastName ||
+    !dateOfBirth ||
+    !phoneNumber ||
+    !email
+  ) {
+    throw new AppError(
+      400,
+      "firstName, lastName, dateOfBirth, phoneNumber, and email are required"
+    );
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
-    throw {
-      status: 400,
-      message: "dateOfBirth must be in YYYY-MM-DD format",
-    };
+    throw new AppError(
+      400,
+      "dateOfBirth must be in YYYY-MM-DD format"
+    );
   }
 
   if (!email.includes("@")) {
-    throw {
-      status: 400,
-      message: "Email must be valid",
-    };
+    throw new AppError(400, "Email must be valid");
   }
 
-  requireEnum(membershipLevel, MEMBERSHIP_LEVELS, "membershipLevel");
+  requireEnum(
+    membershipLevel,
+    MEMBERSHIP_LEVELS,
+    "membershipLevel"
+  );
 
   if (preferredRoomType) {
-    requireEnum(preferredRoomType, ROOM_TYPES, "preferredRoomType");
+    requireEnum(
+      preferredRoomType,
+      ROOM_TYPES,
+      "preferredRoomType"
+    );
   }
 
   if (purposeOfVisit) {
-    requireEnum(purposeOfVisit, PURPOSES, "purposeOfVisit");
+    requireEnum(
+      purposeOfVisit,
+      PURPOSES,
+      "purposeOfVisit"
+    );
   }
 
   requireEnum(cardType, CARD_TYPES, "cardType");
 
-  if (cardLastFour && !/^\d{4}$/.test(cardLastFour)) {
-    throw {
-      status: 400,
-      message: "cardLastFour must be exactly 4 digits",
-    };
+  if (
+    cardLastFour &&
+    !/^\d{4}$/.test(cardLastFour)
+  ) {
+    throw new AppError(
+      400,
+      "cardLastFour must be exactly 4 digits"
+    );
   }
 
   try {
-    const guest = await guestRepository.createGuestWithDetails({
-      firstName,
-      lastName,
-      dateOfBirth,
-      phoneNumber,
-      email,
-      membershipLevel,
-      preferredRoomType,
-      purposeOfVisit,
-      cardType,
-      cardLastFour,
-      billingAddress,
-    });
+    const guest =
+      await guestRepository.createGuestWithDetails({
+        firstName,
+        lastName,
+        dateOfBirth,
+        phoneNumber,
+        email,
+        membershipLevel,
+        preferredRoomType,
+        purposeOfVisit,
+        cardType,
+        cardLastFour,
+        billingAddress,
+      });
 
     return {
       success: true,
@@ -147,32 +164,34 @@ export async function createGuest(input: CreateGuestInput) {
       guest,
     };
   } catch (error: any) {
-    if (String(error?.message || "").includes("UNIQUE")) {
-      throw {
-        status: 409,
-        message: "A guest with this email or phone number already exists",
-      };
+    if (
+      String(error?.message || "").includes("UNIQUE")
+    ) {
+      throw new AppError(
+        409,
+        "A guest with this email or phone number already exists"
+      );
     }
 
     throw error;
   }
 }
-export async function getGuestReservations(guestId: number) {
+
+export async function getGuestReservations(
+  guestId: number
+) {
   if (!guestId) {
-    throw {
-      status: 400,
-      message: "Guest ID is required",
-    };
+    throw new AppError(400, "Guest ID is required");
   }
 
-  const guest = await guestRepository.findGuestById(guestId);
+  const guest =
+    await guestRepository.findGuestById(guestId);
 
   if (!guest) {
-    throw {
-      status: 404,
-      message: "Guest not found",
-    };
+    throw new AppError(404, "Guest not found");
   }
 
-  return guestRepository.findGuestReservations(guestId);
+  return guestRepository.findGuestReservations(
+    guestId
+  );
 }

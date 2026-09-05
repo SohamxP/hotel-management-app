@@ -1,5 +1,7 @@
 import express from "express";
-import { verifyToken } from "../middleware/auth";
+import { verifyToken, authorize } from "../middleware/auth";
+import { validateBody } from "../middleware/validate";
+import { createReservationSchema } from "../schemas/reservationSchema";
 import {
   createReservation,
   getReservations,
@@ -7,9 +9,26 @@ import {
 } from "../controllers/reservationController";
 
 const router = express.Router();
+router.get(
+  "/",
+  verifyToken,
+  authorize("Manager", "Front Desk"),
+  getReservations
+);
 
-router.get("/", verifyToken, getReservations);
-router.post("/", verifyToken, createReservation);
-router.patch("/:id/cancel", verifyToken, cancelReservation);
+router.post(
+  "/",
+  verifyToken,
+  authorize("Manager", "Front Desk"),
+  validateBody(createReservationSchema),
+  createReservation
+);
+
+router.patch(
+  "/:id/cancel",
+  verifyToken,
+  authorize("Manager", "Front Desk"),
+  cancelReservation
+);
 
 export default router;
