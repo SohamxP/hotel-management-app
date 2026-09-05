@@ -1,5 +1,5 @@
 import { Stack, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -29,7 +29,7 @@ export default function ReservationsScreen() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadReservations = async () => {
+  const loadReservations = useCallback(async () => {
   try {
     setLoading(true);
     const res = await API.get("/api/reservations");
@@ -40,7 +40,7 @@ export default function ReservationsScreen() {
   } finally {
     setLoading(false);
   }
-};
+}, []);
 
   const cancelReservation = async (reservationId: number) => {
     try {
@@ -59,7 +59,7 @@ export default function ReservationsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadReservations();
-    }, [])
+    }, [loadReservations])
   );
 
   if (loading) {

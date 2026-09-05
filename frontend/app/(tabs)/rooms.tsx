@@ -1,7 +1,13 @@
-import { Redirect } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
-import { router, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import {
+  Redirect,
+  router,
+  useFocusEffect,
+} from "expo-router";
+
+import {
+  useCallback,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -25,37 +31,42 @@ type Room = {
 };
 
 export default function Dashboard() {
-  const { token, logout } = useAuth();
+  const { token, user, logout } = useAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
 
   
-  const loadRooms = async () => {
+  const loadRooms = useCallback(async () => {
     if (!token) {
-  return <Redirect href="/login" />;
-}
+      return;
+    }
 
     try {
       setLoading(true);
+
       const res = await API.get("/api/rooms");
+
       setRooms(res.data);
     } catch (error: any) {
-  console.log("ROOM API ERROR:", error.response?.data || error.message);
-} finally {
+      console.log(
+        "ROOM API ERROR:",
+        error.response?.data || error.message
+      );
+    } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useFocusEffect(
     useCallback(() => {
       loadRooms();
-    }, [token])
+    }, [loadRooms])
   );
 
   if (!token) {
-    return null;
+    return <Redirect href="/login" />;
   }
 
   const available = rooms.filter((r) => r.AvailStatus === "Available").length;
@@ -82,6 +93,18 @@ export default function Dashboard() {
       <Text style={{ color: COLORS.muted, marginTop: 6 }}>
         Room availability and operations overview
       </Text>
+      {user && (
+        <Text
+          style={{
+            color: COLORS.primary,
+            marginTop: 8,
+            fontWeight: "700",
+          }}
+        >
+          {user.firstName}{" "}
+          {user.lastName} • {user.role}
+        </Text>
+      )}
 
       <Pressable
   onPress={() => {
@@ -108,19 +131,27 @@ export default function Dashboard() {
         <StatCard title="Blocked" value={blocked} color={COLORS.danger} />
       </View>
 
-      <Pressable
-        onPress={() => router.push("/reports")}
-        style={{
-          backgroundColor: COLORS.primary,
-          padding: 14,
-          borderRadius: 14,
-          marginTop: 18,
-        }}
-      >
-        <Text style={{ color: "#00111A", textAlign: "center", fontWeight: "800" }}>
-          View Reports
-        </Text>
-      </Pressable>
+      {user?.role === "Manager" && (
+        <Pressable
+          onPress={() => router.push("/reports")}
+          style={{
+            backgroundColor: COLORS.primary,
+            padding: 14,
+            borderRadius: 14,
+            marginTop: 18,
+          }}
+        >
+          <Text
+            style={{
+              color: "#00111A",
+              textAlign: "center",
+              fontWeight: "800",
+            }}
+          >
+            View Reports
+          </Text>
+        </Pressable>
+      )}
 
       <TextInput
         placeholder="🔍 Search by room number or type..."

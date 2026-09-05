@@ -51,7 +51,7 @@ export default function GuestDetailsScreen() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadGuestDetails = async () => {
+  const loadGuestDetails = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -72,12 +72,12 @@ export default function GuestDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [guestId]);
 
   useFocusEffect(
     useCallback(() => {
       loadGuestDetails();
-    }, [guestId])
+    }, [loadGuestDetails])
   );
 
   const totalSpent = reservations.reduce(

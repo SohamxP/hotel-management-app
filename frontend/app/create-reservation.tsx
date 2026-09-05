@@ -49,7 +49,7 @@ export default function CreateReservationScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const loadGuests = async () => {
+  const loadGuests = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -65,12 +65,12 @@ export default function CreateReservationScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedGuestId]);
 
   useFocusEffect(
     useCallback(() => {
       loadGuests();
-    }, [selectedGuestId])
+    }, [loadGuests])
   );
 
   const handleCreateReservation = async () => {

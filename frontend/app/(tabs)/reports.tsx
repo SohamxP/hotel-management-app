@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Text, View } from "react-native";
-import { Stack } from "expo-router";
+import { Redirect, Stack } from "expo-router";
 import { API } from "../../api/api";
 import { COLORS } from "../../constants/theme";
+import { useAuth } from "../../context/AuthContext";
 
 type Report = {
   RoomType: string;
@@ -11,6 +12,7 @@ type Report = {
 };
 
 export default function ReportsScreen() {
+  const { user } = useAuth();
   const [data, setData] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,6 +25,10 @@ export default function ReportsScreen() {
       .finally(() => setLoading(false));
   }, []);
 
+  if (user?.role !== "Manager") {
+    return <Redirect href="/rooms" />;
+  }
+  
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: COLORS.bg, justifyContent: "center" }}>
