@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useFocusEffect } from "expo-router";
+import { Redirect, Stack, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useAuth } from "../../context/AuthContext";
 import { API } from "../../api/api";
 import { COLORS } from "../../constants/theme";
 
@@ -253,6 +254,7 @@ function ServiceQualityCard({ item }: { item: ServiceQuality }) {
 }
 
 export default function QualityScreen() {
+  const { user } = useAuth();
   const [overview, setOverview] = useState<QualityOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [qualityPlan, setQualityPlan] = useState("");
@@ -336,7 +338,10 @@ export default function QualityScreen() {
       </View>
     );
   }
-
+  if (user?.role !== "Manager") {
+    return <Redirect href="/rooms" />;
+  }
+  
   return (
     <>
       <Stack.Screen

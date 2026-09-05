@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useFocusEffect } from "expo-router";
+import { Redirect, Stack, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useAuth } from "../../context/AuthContext";
 import { API } from "../../api/api";
 import { COLORS } from "../../constants/theme";
 
@@ -127,6 +128,7 @@ function formatMoney(value: number) {
 }
 
 export default function AIScreen() {
+  const { user } = useAuth();
   const [status, setStatus] = useState<AIStatus | null>(null);
   const [actionCenter, setActionCenter] = useState<ActionCenterResponse | null>(
     null
@@ -373,6 +375,10 @@ export default function AIScreen() {
       setLoadingAnswer(false);
     }
   };
+
+  if (user?.role !== "Manager") {
+    return <Redirect href="/rooms" />;
+  }
 
   return (
     <>

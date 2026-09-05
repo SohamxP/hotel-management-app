@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,12 +12,24 @@ import { COLORS } from "../constants/theme";
 import { useAuth } from "../context/AuthContext";
 
 export default function LoginScreen() {
-  const { login } = useAuth();
-
+  const {login, isAuthenticated, loading: authLoading} = useAuth();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("admin123");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => {
+    if (
+      !authLoading &&
+      isAuthenticated
+    ) {
+      router.replace(
+        "/rooms" as any
+      );
+    }
+  }, [
+    authLoading,
+    isAuthenticated,
+  ]);
 
   const handleLogin = async () => {
     try {
@@ -29,12 +41,20 @@ export default function LoginScreen() {
         password,
       });
 
-      login(res.data.token);
+      await login(
+      res.data.token,
+      res.data.user
+    );
       router.replace("/rooms" as any);
-    } catch (err) {
+    } catch (err: any) {
       console.log(err);
-      setError("Invalid username or password");
-    } finally {
+
+      setError(
+        err?.response?.data?.error ||
+          "Invalid username or password"
+      );
+    }
+    finally {
       setLoading(false);
     }
   };

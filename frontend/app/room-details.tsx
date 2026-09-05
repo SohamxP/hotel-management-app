@@ -29,7 +29,7 @@ export default function RoomDetails() {
   }
 
   const roomData: Room = JSON.parse(room as string);
-  const isAvailable = roomData.AvailStatus === "Available";
+  const isReservable = roomData.AvailStatus !== "Blocked";
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: COLORS.bg, padding: 20 }}>
@@ -71,24 +71,24 @@ export default function RoomDetails() {
       },
     })
   }
-  disabled={!isAvailable}
+  disabled={!isReservable}
   style={{
-    backgroundColor: isAvailable ? COLORS.primary : COLORS.border,
+    backgroundColor: isReservable ? COLORS.primary : COLORS.border,
     padding: 16,
     borderRadius: 16,
     marginTop: 24,
-    opacity: isAvailable ? 1 : 0.6,
+    opacity: isReservable ? 1 : 0.6,
   }}
 >
         <Text
           style={{
-            color: isAvailable ? "#00111A" : COLORS.muted,
+            color: isReservable ? "#00111A" : COLORS.muted,
             textAlign: "center",
             fontWeight: "900",
             fontSize: 16,
           }}
         >
-          {isAvailable ? "Reserve Room" : "Room Not Available"}
+          {isReservable ? "Reserve Room" : "Room Not Available"}
         </Text>
       </Pressable>
 

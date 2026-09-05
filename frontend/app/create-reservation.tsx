@@ -27,6 +27,13 @@ type Guest = {
   PreferredRoomType?: string;
 };
 
+type AvailableRoom = {
+  RoomNumber: number;
+  RoomType: string;
+  RatePerNight: number;
+  AvailStatus: string;
+};
+
 const paymentModes = [
   "Credit Card",
   "Debit Card",
@@ -48,8 +55,11 @@ export default function CreateReservationScreen() {
   const [specialRequest, setSpecialRequest] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [availabilityChecked, setAvailabilityChecked] = useState(false);
+  const [roomAvailable, setRoomAvailable] = useState<boolean | null>(null);
 
-  const loadGuests = async () => {
+  const loadGuests = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -65,13 +75,89 @@ export default function CreateReservationScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedGuestId]);
 
   useFocusEffect(
     useCallback(() => {
       loadGuests();
-    }, [selectedGuestId])
+    }, [loadGuests])
   );
+
+  const checkRoomAvailability = async () => {
+    const parsedRoomNumber = Number(roomNumber);
+
+    if (!parsedRoomNumber) {
+      Alert.alert("Room missing", "A room must be selected.");
+      return false;
+    }
+
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(checkInDate) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(checkOutDate)
+    ) {
+      Alert.alert(
+        "Invalid dates",
+        "Enter both dates using YYYY-MM-DD format."
+      );
+      return false;
+    }
+
+    if (checkOutDate <= checkInDate) {
+      Alert.alert(
+        "Invalid date range",
+        "Check-out date must be after check-in date."
+      );
+      return false;
+    }
+
+    try {
+      setCheckingAvailability(true);
+
+      const res = await API.get<AvailableRoom[]>(
+        "/api/rooms/available",
+        {
+          params: {
+            checkIn: checkInDate,
+            checkOut: checkOutDate,
+          },
+        }
+      );
+
+      const available = res.data.some(
+        (room) => room.RoomNumber === parsedRoomNumber
+      );
+
+      setAvailabilityChecked(true);
+      setRoomAvailable(available);
+
+      if (!available) {
+        Alert.alert(
+          "Room unavailable",
+          `Room ${parsedRoomNumber} is not available for ${checkInDate} to ${checkOutDate}.`
+        );
+      }
+
+      return available;
+    } catch (error: any) {
+      console.log(
+        "Availability check error:",
+        error.response?.data || error.message
+      );
+
+      setAvailabilityChecked(false);
+      setRoomAvailable(null);
+
+      Alert.alert(
+        "Availability check failed",
+        error.response?.data?.error ||
+          "Could not check room availability."
+      );
+
+      return false;
+    } finally {
+      setCheckingAvailability(false);
+    }
+  };
 
   const handleCreateReservation = async () => {
     const parsedGuestId = Number(guestId);
@@ -92,6 +178,21 @@ export default function CreateReservationScreen() {
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(checkOutDate)) {
       Alert.alert("Invalid date", "Check-out date must be in YYYY-MM-DD format.");
+      return;
+    }
+    if (checkOutDate <= checkInDate) {
+      Alert.alert(
+        "Invalid date range",
+        "Check-out date must be after check-in date."
+      );
+      return;
+    }
+    const available =
+      availabilityChecked && roomAvailable === true
+        ? true
+        : await checkRoomAvailability();
+
+    if (!available) {
       return;
     }
 
@@ -123,10 +224,12 @@ export default function CreateReservationScreen() {
         error.response?.data || error.message
       );
 
-      Alert.alert(
-        "Reservation failed",
-        error.response?.data?.error || "Could not create reservation"
-      );
+      const message =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Could not create reservation";
+
+      Alert.alert("Reservation failed", message);
     } finally {
       setSubmitting(false);
     }
@@ -244,16 +347,63 @@ export default function CreateReservationScreen() {
         <Field
           label="Check-in Date"
           value={checkInDate}
-          onChangeText={setCheckInDate}
-          placeholder="YYYY-MM-DD"
+          onChangeText={(value) => {
+            setCheckInDate(value);
+            setAvailabilityChecked(false);
+            setRoomAvailable(null);
+          }}
         />
 
         <Field
           label="Check-out Date"
           value={checkOutDate}
-          onChangeText={setCheckOutDate}
-          placeholder="YYYY-MM-DD"
+          onChangeText={(value) => {
+            setCheckOutDate(value);
+            setAvailabilityChecked(false);
+            setRoomAvailable(null);
+          }}
         />
+        <Pressable
+          onPress={checkRoomAvailability}
+          disabled={checkingAvailability}
+          style={{
+            backgroundColor: COLORS.card,
+            padding: 14,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor:
+              roomAvailable === true
+                ? COLORS.success
+                : roomAvailable === false
+                ? COLORS.danger
+                : COLORS.border,
+            marginBottom: 18,
+            opacity: checkingAvailability ? 0.6 : 1,
+          }}
+        >
+          {checkingAvailability ? (
+            <ActivityIndicator color={COLORS.primary} />
+          ) : (
+            <Text
+              style={{
+                color:
+                  roomAvailable === true
+                    ? COLORS.success
+                    : roomAvailable === false
+                    ? COLORS.danger
+                    : COLORS.text,
+                textAlign: "center",
+                fontWeight: "800",
+              }}
+            >
+              {roomAvailable === true
+                ? "✓ Room Available"
+                : roomAvailable === false
+                ? "Room Unavailable"
+                : "Check Availability"}
+            </Text>
+          )}
+        </Pressable>
 
         <Text style={{ color: COLORS.text, marginBottom: 8, fontWeight: "700" }}>
           Payment Mode
@@ -305,13 +455,24 @@ export default function CreateReservationScreen() {
         />
 
         <Pressable
-          disabled={submitting}
+          disabled={
+            submitting ||
+            checkingAvailability ||
+            roomAvailable === false
+          }
+
           onPress={handleCreateReservation}
           style={{
             backgroundColor: submitting ? COLORS.muted : COLORS.primary,
             padding: 16,
             borderRadius: 14,
             alignItems: "center",
+            opacity:
+              submitting ||
+              checkingAvailability ||
+              roomAvailable === false
+                ? 0.6
+                : 1,
           }}
         >
           {submitting ? (
