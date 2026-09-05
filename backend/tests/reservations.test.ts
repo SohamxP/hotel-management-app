@@ -1,8 +1,4 @@
-import path from "path";
-
 import request from "supertest";
-import sqlite3 from "sqlite3";
-import { open } from "sqlite";
 import {
   afterAll,
   beforeAll,
@@ -13,6 +9,8 @@ import {
 } from "vitest";
 
 import * as reservationRepository from "../repositories/reservationRepository";
+import { prisma } from "../prismaClient";
+
 import {
   removeTestDatabase,
   resetTestDatabase,
@@ -46,7 +44,10 @@ describe("Reservations", () => {
   it("creates a valid reservation", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91001,
         roomNumber: 90101,
@@ -59,10 +60,13 @@ describe("Reservations", () => {
 
     expect(response.body).toMatchObject({
       success: true,
-      message: "Reservation created successfully",
+      message:
+        "Reservation created successfully",
     });
 
-    expect(response.body.reservation).toMatchObject({
+    expect(
+      response.body.reservation
+    ).toMatchObject({
       guestId: 91001,
       roomNumber: 90101,
       checkInDate: "2026-09-10",
@@ -75,7 +79,10 @@ describe("Reservations", () => {
   it("rejects an overlapping reservation", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91002,
         roomNumber: 90101,
@@ -96,7 +103,10 @@ describe("Reservations", () => {
   it("allows a reservation beginning on the previous checkout date", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91002,
         roomNumber: 90101,
@@ -111,7 +121,10 @@ describe("Reservations", () => {
   it("rejects checkout before checkin", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91003,
         roomNumber: 90101,
@@ -121,7 +134,6 @@ describe("Reservations", () => {
       });
 
     expect(response.status).toBe(400);
-
     expect(response.body.error).toBe(
       "Validation failed"
     );
@@ -130,7 +142,10 @@ describe("Reservations", () => {
   it("rejects an unsupported payment mode", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91003,
         roomNumber: 90101,
@@ -140,7 +155,6 @@ describe("Reservations", () => {
       });
 
     expect(response.status).toBe(400);
-
     expect(response.body.error).toBe(
       "Validation failed"
     );
@@ -149,7 +163,10 @@ describe("Reservations", () => {
   it("rejects a nonexistent guest", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 999999,
         roomNumber: 90101,
@@ -169,7 +186,10 @@ describe("Reservations", () => {
   it("rejects a nonexistent room", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91003,
         roomNumber: 999999,
@@ -189,7 +209,10 @@ describe("Reservations", () => {
   it("rejects a blocked room", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91003,
         roomNumber: 90106,
@@ -210,7 +233,10 @@ describe("Reservations", () => {
   it("creates a reservation that can later be cancelled", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91004,
         roomNumber: 90102,
@@ -224,7 +250,9 @@ describe("Reservations", () => {
     cancellableReservationId =
       response.body.reservation.reservationId;
 
-    expect(cancellableReservationId).toBeDefined();
+    expect(
+      cancellableReservationId
+    ).toBeDefined();
   });
 
   it("cancels an existing reservation", async () => {
@@ -232,21 +260,29 @@ describe("Reservations", () => {
       .patch(
         `/api/reservations/${cancellableReservationId}/cancel`
       )
-      .set("Authorization", `Bearer ${token}`);
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      );
 
     expect(response.status).toBe(200);
 
     expect(response.body).toMatchObject({
       success: true,
-      message: "Reservation cancelled successfully",
-      reservationId: cancellableReservationId,
+      message:
+        "Reservation cancelled successfully",
+      reservationId:
+        cancellableReservationId,
     });
   });
 
   it("allows cancelled dates to be booked again", async () => {
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91005,
         roomNumber: 90102,
@@ -265,12 +301,17 @@ describe("Reservations", () => {
         "addReservationGuest"
       )
       .mockRejectedValueOnce(
-        new Error("Forced guest-link failure")
+        new Error(
+          "Forced guest-link failure"
+        )
       );
 
     const response = await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
+      .set(
+        "Authorization",
+        `Bearer ${token}`
+      )
       .send({
         guestId: 91006,
         roomNumber: 90103,
@@ -283,31 +324,15 @@ describe("Reservations", () => {
 
     spy.mockRestore();
 
-    const db = await open({
-      filename: path.resolve(
-        process.cwd(),
-        "database/test-hotel.db"
-      ),
-      driver: sqlite3.Database,
-    });
+    const reservation =
+      await prisma.reservation.findFirst({
+        where: {
+          roomNumber: 90103,
+          checkInDate: "2026-12-10",
+          checkOutDate: "2026-12-13",
+        },
+      });
 
-    const reservation = await db.get(
-      `
-      SELECT ReservationID
-      FROM Reservation
-      WHERE RoomNumber = ?
-        AND CheckInDate = ?
-        AND CheckOutDate = ?
-      `,
-      [
-        90103,
-        "2026-12-10",
-        "2026-12-13",
-      ]
-    );
-
-    await db.close();
-
-    expect(reservation).toBeUndefined();
+    expect(reservation).toBeNull();
   });
 });

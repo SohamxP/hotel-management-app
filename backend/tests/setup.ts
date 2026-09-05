@@ -5,6 +5,12 @@ import sqlite3 from "sqlite3";
 import { open } from "sqlite";
 
 import { prisma } from "../prismaClient";
+import {
+  CardType,
+  MembershipLevel,
+  RoomAvailability,
+  RoomType,
+} from "../generated/prisma/client";
 
 const TEST_DB_FILE = path.resolve(
   process.cwd(),
@@ -18,8 +24,10 @@ export async function resetTestDatabase() {
    * -------------------------------------------------------
    * SQLITE RESET
    * -------------------------------------------------------
-   * Keep this temporarily because reservations, reports,
-   * services, AI, etc. are still using SQLite.
+   *
+   * We still keep SQLite temporarily because reports,
+   * services, billing, AI, and quality code have not all
+   * been migrated to Prisma yet.
    */
 
   if (fs.existsSync(TEST_DB_FILE)) {
@@ -53,13 +61,6 @@ export async function resetTestDatabase() {
     4
   );
 
-  /*
-   * SQLite auth users.
-   *
-   * We keep these temporarily because some old SQLite code
-   * may still expect the UserAccount table to be populated.
-   */
-
   await db.run(
     `
     INSERT INTO UserAccount (
@@ -88,19 +89,35 @@ export async function resetTestDatabase() {
 
   /*
    * -------------------------------------------------------
-   * POSTGRESQL / PRISMA RESET
+   * POSTGRESQL RESET
    * -------------------------------------------------------
-   * authRepository now uses Prisma, so the same test
-   * employees/users must also exist in PostgreSQL.
+   *
+   * Delete child tables first because of foreign keys.
    */
 
-  await prisma.userAccount.deleteMany({
-    where: {
-      username: {
-        in: ["admin", "frontdesk"],
-      },
-    },
-  });
+  await prisma.billingTransaction.deleteMany();
+  await prisma.feedback.deleteMany();
+
+  await prisma.roomService.deleteMany();
+  await prisma.spaService.deleteMany();
+  await prisma.shuttleService.deleteMany();
+  await prisma.service.deleteMany();
+
+  await prisma.reservationGuest.deleteMany();
+  await prisma.reservation.deleteMany();
+
+  await prisma.paymentInfo.deleteMany();
+  await prisma.membership.deleteMany();
+  await prisma.guest.deleteMany();
+
+  await prisma.room.deleteMany();
+
+  await prisma.userAccount.deleteMany();
+
+  /*
+   * Keep employees because auth users reference them.
+   * Upsert makes this reset safe across multiple test files.
+   */
 
   await prisma.employee.upsert({
     where: {
@@ -151,6 +168,12 @@ export async function resetTestDatabase() {
       hoursWorked: 0,
     },
   });
+
+  /*
+   * -------------------------------------------------------
+   * AUTH USERS
+   * -------------------------------------------------------
+   */
 
   await prisma.userAccount.create({
     data: {
@@ -169,6 +192,121 @@ export async function resetTestDatabase() {
       isActive: true,
     },
   });
+
+  /*
+   * -------------------------------------------------------
+   * ROOMS
+   * -------------------------------------------------------
+   *
+   * These are used by room tests and reservation tests.
+   */
+
+  await prisma.room.createMany({
+    data: [
+      {
+        roomNumber: 90101,
+        roomType: RoomType.KING,
+        ratePerNight: 200,
+        availStatus:
+          RoomAvailability.AVAILABLE,
+        maxOccupancy: 2,
+        hasBalcony: "Y",
+        isSmoking: "N",
+        bedCount: 1,
+        buildingNumber: 9,
+        hasWifi: "Y",
+        hasTv: "Y",
+      },
+      {
+        roomNumber: 90102,
+        roomType: RoomType.QUEEN,
+        ratePerNight: 180,
+        availStatus:
+          RoomAvailability.AVAILABLE,
+        maxOccupancy: 2,
+        hasBalcony: "N",
+        isSmoking: "N",
+        bedCount: 2,
+        buildingNumber: 9,
+        hasWifi: "Y",
+        hasTv: "Y",
+      },
+      {
+        roomNumber: 90103,
+        roomType: RoomType.DELUXE,
+        ratePerNight: 250,
+        availStatus:
+          RoomAvailability.AVAILABLE,
+        maxOccupancy: 4,
+        hasBalcony: "Y",
+        isSmoking: "N",
+        bedCount: 2,
+        buildingNumber: 9,
+        hasWifi: "Y",
+        hasTv: "Y",
+      },
+      {
+        roomNumber: 90106,
+        roomType: RoomType.QUEEN,
+        ratePerNight: 150,
+        availStatus:
+          RoomAvailability.BLOCKED,
+        maxOccupancy: 2,
+        hasBalcony: "N",
+        isSmoking: "N",
+        bedCount: 2,
+        buildingNumber: 9,
+        hasWifi: "Y",
+        hasTv: "Y",
+      },
+    ],
+  });
+
+  /*
+   * -------------------------------------------------------
+   * GUESTS
+   * -------------------------------------------------------
+   *
+   * Reservation tests use guest IDs 91001 through 91006.
+   */
+
+  for (let i = 1; i <= 6; i++) {
+    const guestId = 91000 + i;
+    const membershipId = 92000 + i;
+    const paymentId = 93000 + i;
+
+    await prisma.guest.create({
+      data: {
+        guestId,
+        firstName: `Test${i}`,
+        lastName: "Guest",
+        dateOfBirth: "2000-01-01",
+        phoneNumber: `55500000${i}`,
+        email: `guest${i}@example.com`,
+
+        membership: {
+          create: {
+            membershipId,
+            membershipLevel:
+              MembershipLevel.BRONZE,
+            preferredRoomType:
+              RoomType.KING,
+            purposeOfVisit: null,
+          },
+        },
+
+        paymentInfo: {
+          create: {
+            paymentId,
+            cardType: CardType.VISA,
+            cardLastFour: "1234",
+            billingAddress:
+              "123 Test Street",
+          },
+        },
+      },
+    });
+  }
 }
 
 export function removeTestDatabase() {

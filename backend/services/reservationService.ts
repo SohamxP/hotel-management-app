@@ -1,4 +1,4 @@
-import { getDB } from "../db";
+import { prisma } from "../prismaClient";
 import * as reservationRepository from "../repositories/reservationRepository";
 import { AppError } from "../errors/AppError";
 
@@ -15,7 +15,9 @@ export async function getAllReservations() {
   return reservationRepository.findAllReservations();
 }
 
-export async function createReservation(input: CreateReservationInput) {
+export async function createReservation(
+  input: CreateReservationInput
+) {
   const {
     guestId,
     roomNumber,
@@ -58,82 +60,101 @@ export async function createReservation(input: CreateReservationInput) {
     );
   }
 
-  const db = await getDB();
+  const reservationId = Date.now();
+
+  const nights = Math.ceil(
+    (checkOut.getTime() - checkIn.getTime()) /
+      (1000 * 60 * 60 * 24)
+  );
 
   try {
-    await db.exec("BEGIN IMMEDIATE TRANSACTION");
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const guest =
+          await reservationRepository.findGuestById(
+            guestId,
+            tx
+          );
 
-    const guest =
-      await reservationRepository.findGuestById(
-        guestId,
-        db
-      );
+        if (!guest) {
+          throw new AppError(
+            404,
+            "Guest not found"
+          );
+        }
 
-    if (!guest) {
-      throw new AppError(404, "Guest not found");
-    }
+        const room =
+          await reservationRepository.findRoomByNumber(
+            roomNumber,
+            tx
+          );
 
-    const room =
-      await reservationRepository.findRoomByNumber(
-        roomNumber,
-        db
-      );
+        if (!room) {
+          throw new AppError(
+            404,
+            "Room not found"
+          );
+        }
 
-    if (!room) {
-      throw new AppError(404, "Room not found");
-    }
+        if (room.AvailStatus === "Blocked") {
+          throw new AppError(
+            400,
+            "Room is blocked and cannot be reserved"
+          );
+        }
 
-    if (room.AvailStatus === "Blocked") {
-      throw new AppError(400, "Room is blocked and cannot be reserved");
-    }
+        const conflictingReservation =
+          await reservationRepository.findConflictingReservation(
+            roomNumber,
+            checkInDate,
+            checkOutDate,
+            tx
+          );
 
-    const conflictingReservation =
-      await reservationRepository.findConflictingReservation(
-        roomNumber,
-        checkInDate,
-        checkOutDate,
-        db
-      );
+        if (conflictingReservation) {
+          throw new AppError(
+            409,
+            "Room is already reserved for the selected dates"
+          );
+        }
 
-    if (conflictingReservation) {
-      throw new AppError(409, "Room is already reserved for the selected dates");
-    }
+        const totalPrice =
+          nights * room.RatePerNight;
 
-    const nights = Math.ceil(
-      (checkOut.getTime() - checkIn.getTime()) /
-        (1000 * 60 * 60 * 24)
-    );
+        await reservationRepository.createReservation(
+          {
+            reservationId,
+            guestId,
+            roomNumber,
+            checkInDate,
+            checkOutDate,
+            totalPrice,
+            paymentMode,
+            specialRequest:
+              specialRequest || null,
+          },
+          tx
+        );
 
-    const totalPrice =
-      nights * room.RatePerNight;
+        await reservationRepository.addReservationGuest(
+          reservationId,
+          guestId,
+          tx
+        );
 
-    const reservationId = Date.now();
-
-    await reservationRepository.createReservation(
-      {
-        reservationId,
-        guestId,
-        roomNumber,
-        checkInDate,
-        checkOutDate,
-        totalPrice,
-        paymentMode,
-        specialRequest: specialRequest || null,
+        return {
+          totalPrice,
+        };
       },
-      db
+      {
+        isolationLevel: "Serializable",
+      }
     );
-
-    await reservationRepository.addReservationGuest(
-      reservationId,
-      guestId,
-      db
-    );
-
-    await db.exec("COMMIT");
 
     return {
       success: true,
-      message: "Reservation created successfully",
+      message:
+        "Reservation created successfully",
       reservation: {
         reservationId,
         guestId,
@@ -141,45 +162,63 @@ export async function createReservation(input: CreateReservationInput) {
         checkInDate,
         checkOutDate,
         nights,
-        totalPrice,
+        totalPrice: result.totalPrice,
         status: "Confirmed",
         paymentMode,
       },
     };
-  } catch (error) {
-    try {
-      await db.exec("ROLLBACK");
-    } catch {
-      // Ignore rollback failure so the original error is preserved.
+  } catch (error: any) {
+    if (error?.code === "P2034") {
+      throw new AppError(
+        409,
+        "Reservation conflict detected. Please retry the booking."
+      );
     }
 
     throw error;
-  } finally {
-    await db.close();
   }
 }
 
-export async function cancelReservation(reservationId: number) {
+export async function cancelReservation(
+  reservationId: number
+) {
   if (!reservationId) {
-    throw new AppError(400, "Reservation ID is required");
+    throw new AppError(
+      400,
+      "Reservation ID is required"
+    );
   }
 
   const reservation =
-    await reservationRepository.findReservationById(reservationId);
+    await reservationRepository.findReservationById(
+      reservationId
+    );
 
   if (!reservation) {
-    throw new AppError(404, "Reservation not found");
+    throw new AppError(
+      404,
+      "Reservation not found"
+    );
   }
 
-  if (reservation.ReservStatus === "Cancelled") {
-    throw new AppError(400, "Reservation is already cancelled");
+  if (
+    reservation.ReservStatus ===
+    "Cancelled"
+  ) {
+    throw new AppError(
+      400,
+      "Reservation is already cancelled"
+    );
   }
 
-  await reservationRepository.cancelReservation(reservationId);
+  await reservationRepository.cancelReservation(
+    reservationId
+  );
 
   return {
     success: true,
-    message: "Reservation cancelled successfully",
+    message:
+      "Reservation cancelled successfully",
     reservationId,
   };
 }
