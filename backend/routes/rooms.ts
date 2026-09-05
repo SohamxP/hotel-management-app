@@ -1,6 +1,9 @@
 import express from "express";
 import { verifyToken, authorize } from "../middleware/auth";
-import { getRooms, reserveRoom } from "../controllers/roomController";
+import {
+  getRooms,
+  getAvailableRooms,
+} from "../controllers/roomController";
 
 const router = express.Router();
 
@@ -11,11 +14,11 @@ router.get(
   getRooms
 );
 
-router.post(
-  "/reserve",
+router.get(
+  "/available",
   verifyToken,
   authorize("Manager", "Front Desk"),
-  reserveRoom
+  getAvailableRooms
 );
 
 export default router;

@@ -4,35 +4,60 @@ export async function getAllRooms() {
   return roomRepository.findAllRooms();
 }
 
-export async function reserveRoom(RoomNumber: number) {
-  if (!RoomNumber) {
+export async function getAvailableRooms(
+  checkIn: string,
+  checkOut: string
+) {
+  if (!checkIn || !checkOut) {
     throw {
       status: 400,
-      message: "RoomNumber is required",
+      message:
+        "checkIn and checkOut are required",
     };
   }
 
-  const room = await roomRepository.findRoomByNumber(RoomNumber);
+  const datePattern =
+    /^\d{4}-\d{2}-\d{2}$/;
 
-  if (!room) {
-    throw {
-      status: 404,
-      message: "Room not found",
-    };
-  }
-
-  if (room.AvailStatus !== "Available") {
+  if (
+    !datePattern.test(checkIn) ||
+    !datePattern.test(checkOut)
+  ) {
     throw {
       status: 400,
-      message: "Room is not available",
+      message:
+        "Dates must use YYYY-MM-DD format",
     };
   }
 
-  await roomRepository.updateRoomStatus(RoomNumber, "Reserved");
+  const checkInDate = new Date(
+    `${checkIn}T00:00:00`
+  );
 
-  return {
-    success: true,
-    message: "Room reserved successfully",
-    RoomNumber,
-  };
+  const checkOutDate = new Date(
+    `${checkOut}T00:00:00`
+  );
+
+  if (
+    Number.isNaN(checkInDate.getTime()) ||
+    Number.isNaN(checkOutDate.getTime())
+  ) {
+    throw {
+      status: 400,
+      message: "Invalid reservation dates",
+    };
+  }
+
+  if (checkOutDate <= checkInDate) {
+    throw {
+      status: 400,
+      message:
+        "Check-out date must be after check-in date",
+    };
+  }
+
+  return roomRepository.findAvailableRooms(
+    checkIn,
+    checkOut
+  );
 }

@@ -7,22 +7,43 @@ export async function getRooms(req: Request, res: Response) {
     res.json(rooms);
   } catch (error) {
     console.error("GET rooms error:", error);
-    res.status(500).json({ error: "Failed to fetch rooms" });
+
+    res.status(500).json({
+      error: "Failed to fetch rooms",
+    });
   }
 }
 
-export async function reserveRoom(req: Request, res: Response) {
+export async function getAvailableRooms(
+  req: Request,
+  res: Response
+) {
   try {
-    const { RoomNumber } = req.body;
+    const checkIn = String(
+      req.query.checkIn || ""
+    );
 
-    const result = await roomService.reserveRoom(RoomNumber);
+    const checkOut = String(
+      req.query.checkOut || ""
+    );
 
-    res.json(result);
+    const rooms =
+      await roomService.getAvailableRooms(
+        checkIn,
+        checkOut
+      );
+
+    res.json(rooms);
   } catch (error: any) {
-    console.error("Reserve room error:", error);
+    console.error(
+      "GET available rooms error:",
+      error
+    );
 
     res.status(error.status || 500).json({
-      error: error.message || "Reservation failed",
+      error:
+        error.message ||
+        "Failed to fetch available rooms",
     });
   }
 }
